@@ -6,42 +6,69 @@
 #define FILE_PATH "./assets/file.wav"
 #define BUFFER_SIZE 20000
 
-int main(void) {
-	FILE* wav = fopen(FILE_PATH, "r");
+typedef struct{
+	U8  riffId[4];
+	U32 fileSize;
+	U8  waveId[4];
+	U8  fmtId[4];
+	U32 chunkSize;
+	U16 typeFmt;
+	U16 monoFlag;
+	U32 sampleFreq;
+	U32 dataRate;
+	U32 alignment;
+	U16 bps;
+	U8  dataId[4];
+	U32 dataSize;
+} WaveHeader;
+
+U32
+FourBit_ASCII_LE(U8* Buffer, U8 Offset){
+	return Buffer[Offset] | (Buffer[Offset + 1] << 8) | (Buffer[Offset + 2] << 16) | (Buffer[Offset + 3] << 24);
+}
+
+U16
+TwoBit_ASCII_LE(U8* Buffer, U8 Offset){
+	return Buffer[Offset] | (Buffer[Offset + 1] << 8);
+}
+
+int
+main(void) {
+	U8 Buffer[BUFFER_SIZE];
 	
-	U8 buffer[BUFFER_SIZE];
-	U8 c;
-	U32 i = 0;
+	WaveHeader wavHeader;
+	FILE* wav = fopen("./assets/file.wav", "rb");
 	
-	// Reading the whole file
-	c = getc(wav);
-	while(i < BUFFER_SIZE && c != EOF){
-		buffer[i] = c;
-		c = getc(wav);
-		i++;
-	}
+	U64 file_size = fread(Buffer, 1, BUFFER_SIZE, wav);
 	
-	// Get silces of width 4
-	char window[4];
-	char* data = "data";
+	printf("Read %ld bytes of file\n\n", file_size);
 	
-	for(U8 j = 0; j < i; j++){
-		window[j%4] = buffer[j];
-		if(j % 4 == 3){
-			B8 match = 0;
-			for(U8 k = 0; k < 4; k++){
-				if(window[k] == data[k]){
-					match = 1;
-				}
-			}
-			if(match == 1){
-				printf("%s", window);
-				break;
-			}
-		}
-	}
+	memcpy(wavHeader.riffId, Buffer, 4);
+	wavHeader.fileSize = FourBit_ASCII_LE(Buffer, 4);
+	memcpy(wavHeader.waveId, Buffer + 8, 4);
+	memcpy(wavHeader.fmtId, Buffer + 12, 4);
+	wavHeader.chunkSize = FourBit_ASCII_LE(Buffer, 16);
+	wavHeader.typeFmt = TwoBit_ASCII_LE(Buffer, 20);
+	wavHeader.monoFlag = TwoBit_ASCII_LE(Buffer, 22);
+	wavHeader.sampleFreq = FourBit_ASCII_LE(Buffer, 24);
+	wavHeader.dataRate = FourBit_ASCII_LE(Buffer, 28);
+	wavHeader.alignment = TwoBit_ASCII_LE(Buffer, 32);
+	wavHeader.bps = TwoBit_ASCII_LE(Buffer, 34);
+	memcpy(wavHeader.dataId, Buffer + 36, 4);
+	wavHeader.dataSize = FourBit_ASCII_LE(Buffer, 40);
 	
-	fclose(wav);
+	printf("riffId\t  : %.4s\n", wavHeader.riffId);
+	printf("fileSize  : %.4d\n", wavHeader.fileSize);
+	printf("waveId\t  : %.4s\n", wavHeader.waveId);
+	printf("fmtId \t  : %.4s\n", wavHeader.fmtId);
+	printf("chunkSize : %d\n",   wavHeader.chunkSize);
+	printf("typeFmt : %d\n",   wavHeader.typeFmt);
+	printf("monoFlag : %d\n",   wavHeader.monoFlag);
+	printf("sampleFreq : %d\n",   wavHeader.sampleFreq);
+	printf("dataRate  : %d\n",   wavHeader.dataRate);
+	printf("alignment : %d\n",   wavHeader.alignment);
+	printf("dataId\t : %.4s\n",   wavHeader.dataId);
+	printf("dataSize : %d\n",   wavHeader.dataSize);
 	
 	return 0;
 }
