@@ -4,7 +4,7 @@
 OS=$(uname)
 
 if [[ "$OS" == "Linux" ]]; then
-    g++ player.cpp -Wall -g -o player \
+    g++ player.cpp -Wall -g -o player -lasound\
 
 elif [[ "$OS" == "Darwin" ]]; then
     echo "Building for macOS..."
