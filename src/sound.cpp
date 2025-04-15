@@ -1,8 +1,13 @@
+#ifndef MODE_ENUM_H
+#define MODE_ENUM_H
+
 enum Mode{
   START,
   PAUSE,
-  RESUME
+  RESUME,
+  QUIT
 };
+#endif
 
 typedef struct{
   U8  riffId[4];
@@ -68,65 +73,92 @@ PrintWaveHeader(WaveHeader* wavHeader){
 }
 
 void
-PlaySound(FILE* wav, WaveHeader* wavHeader, U32 mode){
+PlaySound(FILE* wav, WaveHeader* wavHeader, U32 mode, B32* done){
   fseek(wav, 44, SEEK_SET);
 
   snd_pcm_t *pcm_handle;
   snd_pcm_hw_params_t *params;
 
-  // Open PCM device for playback
+
   S32 rc = snd_pcm_open(&pcm_handle, "default", SND_PCM_STREAM_PLAYBACK, 0);
   if (rc < 0) {
-	fprintf(stderr, "unable to open pcm device: %s\n", snd_strerror(rc));
+    fprintf(stderr, "unable to open pcm device: %s\n", snd_strerror(rc));
   }
 
-  // Allocate hardware parameters object
   snd_pcm_hw_params_alloca(&params);
 
-
-  // Set hardware parameters
   snd_pcm_hw_params_any(pcm_handle, params);
   snd_pcm_hw_params_set_access(pcm_handle, params, SND_PCM_ACCESS_RW_INTERLEAVED);
 
-  if (wavHeader->bps == 8) {
-	snd_pcm_hw_params_set_format(pcm_handle, params, SND_PCM_FORMAT_U8);
-  } else if (wavHeader->bps == 16) {
-	snd_pcm_hw_params_set_format(pcm_handle, params, SND_PCM_FORMAT_S16_LE);
-  } else {
-	fprintf(stderr, "Unsupported bits per sample: %d\n", wavHeader->bps);
-	snd_pcm_close(pcm_handle);
+  if (wavHeader->bps == 8)
+  {
+    snd_pcm_hw_params_set_format(pcm_handle, params, SND_PCM_FORMAT_U8);
+  } 
+  else if (wavHeader->bps == 16) 
+  {
+    snd_pcm_hw_params_set_format(pcm_handle, params, SND_PCM_FORMAT_S16_LE);
+  } 
+  else 
+  {
+    fprintf(stderr, "Unsupported bits per sample: %d\n", wavHeader->bps);
+    snd_pcm_close(pcm_handle);
   }
 
   snd_pcm_hw_params_set_channels(pcm_handle, params, wavHeader->monoFlag);
   snd_pcm_hw_params_set_rate(pcm_handle, params, wavHeader->sampleFreq, 0);
 
-  // Write parameters to driver
   rc = snd_pcm_hw_params(pcm_handle, params);
-  if (rc < 0) {
-	fprintf(stderr, "unable to set hw parameters: %s\n", snd_strerror(rc));
-	snd_pcm_close(pcm_handle);
+  if (rc < 0)
+  {
+    fprintf(stderr, "unable to set hw parameters: %s\n", snd_strerror(rc));
+    snd_pcm_close(pcm_handle);
   }
 
-  // Read and play audio data
   U8 audioBuffer[4096];
   size_t bytesRead;
 
-  while ((bytesRead = fread(audioBuffer, 1, sizeof(audioBuffer), wav)) > 0) {
-	if(mode == PAUSE){
-	  snd_pcm_pause	(pcm_handle,1);
-	}
-	else if(mode == START){
-	  rc = snd_pcm_writei(pcm_handle, audioBuffer, bytesRead / (wavHeader->bps / 8 * wavHeader->monoFlag)); // corrected division.
-	  if (rc < 0) {
-		fprintf(stderr, "error from snd_pcm_writei: %s\n", snd_strerror(rc));
-		break;
-	  }
-	}
-	else {
-	  snd_pcm_pause	(pcm_handle,1);
-	}
+  B8 playing = 1;
+
+  while ((bytesRead = fread(audioBuffer, 1, sizeof(audioBuffer), wav)) > 0) 
+  {
+    if(IsKeyPressed(KEY_SPACE)){
+      if(playing){
+	mode = PAUSE;
+	playing = 0;
+	printf("mode is pause rn\n");
+      }
+ //      else{
+	// mode = RESUME;
+	// playing = 1;
+ //      } 
+    }
+
+    if(mode == PAUSE){
+      printf("mode is pause rn\n");
+      snd_pcm_pause(pcm_handle, 1); // TODO(sujith): this is resume change it back to pause
+      mode = START;
+    }
+    else if(mode == START)
+    {
+      printf("mode is start rn\n");
+      rc = snd_pcm_writei(pcm_handle, audioBuffer, bytesRead / (wavHeader->bps / 8 * wavHeader->monoFlag)); 
+      if (rc < 0) 
+      {
+	fprintf(stderr, "error from snd_pcm_writei: %s\n", snd_strerror(rc));
+	break;
+      }
+    }
+    else 
+    {
+      snd_pcm_pause(pcm_handle,1);
+    }
   }
 
+  *done = 0;
+  
   snd_pcm_drain(pcm_handle);
-  snd_pcm_close(pcm_handle);
+
+  if(mode == QUIT){
+    snd_pcm_close(pcm_handle);
+  }
 }
