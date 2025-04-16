@@ -52,7 +52,7 @@ WaveHeaderSetup(WaveHeader* wavHeader, U8* Buffer){
   wavHeader->bps = TwoBit_ASCII_LE(Buffer, 34);
   memcpy(wavHeader->dataId, Buffer + 36, 4);
   wavHeader->dataSize = FourBit_ASCII_LE(Buffer, 40);
-
+	
 }
 
 void
@@ -74,50 +74,34 @@ PrintWaveHeader(WaveHeader* wavHeader){
 
 typedef struct 
 {
-    FILE *wav;
-    unsigned char *audioBuffer;
-    size_t bufferSize;
-    snd_pcm_t *pcm_handle;
-    WaveHeader* wavHeader;
-    U32 mode;
+	FILE *wav;
+	unsigned char *audioBuffer;
+	size_t bufferSize;
+	snd_pcm_t *pcm_handle;
+	WaveHeader* wavHeader;
+	U32 mode;
 } AudioData;
 
-void *audioPlaybackThread(void *arg) {
-    AudioData *data = (AudioData *)arg;
-    size_t bytesRead;
-    int rc;
 
-    while ((bytesRead = fread(data->audioBuffer, 1, data->bufferSize, data->wav)) > 0) {
-        // Play audio data
-        rc = snd_pcm_writei(data->pcm_handle, data->audioBuffer, bytesRead / (data->wavHeader->bps / 8 * data->wavHeader->monoFlag));
-        if (rc < 0) {
-            fprintf(stderr, "error from snd_pcm_writei in thread: %s\n", snd_strerror(rc));
-            break;
-        }
-    }
-    printf("Audio playback finished in thread.\n");
-    return NULL;
-}
-
-void
+snd_pcm_t*
 PlaySound(FILE* wav, WaveHeader* wavHeader, U32 mode, B32* done)
 {
   fseek(wav, 44, SEEK_SET);
-
+	
   snd_pcm_t *pcm_handle;
   snd_pcm_hw_params_t *params;
-
-
+	
+	
   S32 rc = snd_pcm_open(&pcm_handle, "default", SND_PCM_STREAM_PLAYBACK, 0);
   if (rc < 0) {
     fprintf(stderr, "unable to open pcm device: %s\n", snd_strerror(rc));
   }
-
+	
   snd_pcm_hw_params_alloca(&params);
-
+	
   snd_pcm_hw_params_any(pcm_handle, params);
   snd_pcm_hw_params_set_access(pcm_handle, params, SND_PCM_ACCESS_RW_INTERLEAVED);
-
+	
   if (wavHeader->bps == 8)
   {
     snd_pcm_hw_params_set_format(pcm_handle, params, SND_PCM_FORMAT_U8);
@@ -131,61 +115,49 @@ PlaySound(FILE* wav, WaveHeader* wavHeader, U32 mode, B32* done)
     fprintf(stderr, "Unsupported bits per sample: %d\n", wavHeader->bps);
     snd_pcm_close(pcm_handle);
   }
-
+	
   snd_pcm_hw_params_set_channels(pcm_handle, params, wavHeader->monoFlag);
   snd_pcm_hw_params_set_rate(pcm_handle, params, wavHeader->sampleFreq, 0);
-
+	
   rc = snd_pcm_hw_params(pcm_handle, params);
   if (rc < 0)
   {
     fprintf(stderr, "unable to set hw parameters: %s\n", snd_strerror(rc));
     snd_pcm_close(pcm_handle);
   }
-
+	
   unsigned char audioBuffer[4096]; 
-  AudioData audioData;
-  audioData.wav = wav;
-  audioData.audioBuffer = audioBuffer;
-  audioData.bufferSize = sizeof(audioBuffer);
-  audioData.pcm_handle = pcm_handle;
-  audioData.wavHeader = wavHeader;
-
-  pthread_t playbackThread;
-  if (pthread_create(&playbackThread, NULL, audioPlaybackThread, &audioData) != 0) {
-    perror("Failed to create audio playback thread");
+  U32 playing   = 0;
+	U32 bytesRead = 0;
+	
+	if (IsKeyPressed(KEY_SPACE) && (playing == 0 || mode == START) && mode != PAUSE) {
+		mode = START;
+		playing = 1;
+		
+		while ((bytesRead = fread(audioBuffer, 1, sizeof(audioBuffer), wav)) > 0) {
+			rc = snd_pcm_writei(pcm_handle, audioBuffer,
+													bytesRead / (wavHeader->bps / 8 * wavHeader->monoFlag));
+			if (rc < 0) {
+				printf("rc < 0, snd_pcm_writei faulted\n");
+				break;
+			}
+			
+		}
+		
   }
-
-  U32 playing = 0;
-
-  while (true) {
-    if (IsKeyPressed(KEY_SPACE) && (playing == 0 || mode == START) && mode != PAUSE) {
-      mode = START;
-      playing = 1;
-      printf("Playing (from main thread)...\n");
-    }
-
-    if (IsKeyPressed(KEY_P) && playing == 1) {
-      mode = PAUSE;
-      playing = 0;
-      printf("Paused (from main thread).\n");
-      snd_pcm_pause(pcm_handle, 1);
-    }
-    else if (IsKeyPressed(KEY_R) && playing == PAUSE) {
-      mode = RESUME;
-      playing = 0;
-      printf("Resuming (from main thread)...\n");
-      snd_pcm_pause(pcm_handle, 0);
-    }
-
-  }
-
-  pthread_join(playbackThread, NULL);
-
+	
   *done = 0;
   
-  snd_pcm_drain(pcm_handle);
-
+	
+	
+	
+	/*snd_pcm_nonblock(pcm_handle, 1);
+	snd_pcm_drain(pcm_handle);*/
+	printf("this is non-blocking snd_pcm_drain\n");
+	
   if(IsKeyPressed(KEY_Q)){
     snd_pcm_close(pcm_handle);
   }
+	
+	return pcm_handle;
 }
