@@ -72,8 +72,36 @@ PrintWaveHeader(WaveHeader* wavHeader){
   printf("dataSize : %d\n",   wavHeader->dataSize);
 }
 
+typedef struct 
+{
+    FILE *wav;
+    unsigned char *audioBuffer;
+    size_t bufferSize;
+    snd_pcm_t *pcm_handle;
+    WaveHeader* wavHeader;
+    U32 mode;
+} AudioData;
+
+void *audioPlaybackThread(void *arg) {
+    AudioData *data = (AudioData *)arg;
+    size_t bytesRead;
+    int rc;
+
+    while ((bytesRead = fread(data->audioBuffer, 1, data->bufferSize, data->wav)) > 0) {
+        // Play audio data
+        rc = snd_pcm_writei(data->pcm_handle, data->audioBuffer, bytesRead / (data->wavHeader->bps / 8 * data->wavHeader->monoFlag));
+        if (rc < 0) {
+            fprintf(stderr, "error from snd_pcm_writei in thread: %s\n", snd_strerror(rc));
+            break;
+        }
+    }
+    printf("Audio playback finished in thread.\n");
+    return NULL;
+}
+
 void
-PlaySound(FILE* wav, WaveHeader* wavHeader, U32 mode, B32* done){
+PlaySound(FILE* wav, WaveHeader* wavHeader, U32 mode, B32* done)
+{
   fseek(wav, 44, SEEK_SET);
 
   snd_pcm_t *pcm_handle;
@@ -114,51 +142,50 @@ PlaySound(FILE* wav, WaveHeader* wavHeader, U32 mode, B32* done){
     snd_pcm_close(pcm_handle);
   }
 
-  U8 audioBuffer[4096];
-  size_t bytesRead;
+  unsigned char audioBuffer[4096]; 
+  AudioData audioData;
+  audioData.wav = wav;
+  audioData.audioBuffer = audioBuffer;
+  audioData.bufferSize = sizeof(audioBuffer);
+  audioData.pcm_handle = pcm_handle;
+  audioData.wavHeader = wavHeader;
 
-  B8 playing = 1;
-
-  while ((bytesRead = fread(audioBuffer, 1, sizeof(audioBuffer), wav)) > 0) 
-  {
-    if(IsKeyPressed(KEY_SPACE)){
-      if(playing){
-	mode = PAUSE;
-	playing = 0;
-	printf("mode is pause rn\n");
-      }
- //      else{
-	// mode = RESUME;
-	// playing = 1;
- //      } 
-    }
-
-    if(mode == PAUSE){
-      printf("mode is pause rn\n");
-      snd_pcm_pause(pcm_handle, 1); // TODO(sujith): this is resume change it back to pause
-      mode = START;
-    }
-    else if(mode == START)
-    {
-      printf("mode is start rn\n");
-      rc = snd_pcm_writei(pcm_handle, audioBuffer, bytesRead / (wavHeader->bps / 8 * wavHeader->monoFlag)); 
-      if (rc < 0) 
-      {
-	fprintf(stderr, "error from snd_pcm_writei: %s\n", snd_strerror(rc));
-	break;
-      }
-    }
-    else 
-    {
-      snd_pcm_pause(pcm_handle,1);
-    }
+  pthread_t playbackThread;
+  if (pthread_create(&playbackThread, NULL, audioPlaybackThread, &audioData) != 0) {
+    perror("Failed to create audio playback thread");
   }
+
+  U32 playing = 0;
+
+  while (true) {
+    if (IsKeyPressed(KEY_SPACE) && (playing == 0 || mode == START) && mode != PAUSE) {
+      mode = START;
+      playing = 1;
+      printf("Playing (from main thread)...\n");
+    }
+
+    if (IsKeyPressed(KEY_P) && playing == 1) {
+      mode = PAUSE;
+      playing = 0;
+      printf("Paused (from main thread).\n");
+      snd_pcm_pause(pcm_handle, 1);
+    }
+    else if (IsKeyPressed(KEY_R) && playing == PAUSE) {
+      mode = RESUME;
+      playing = 0;
+      printf("Resuming (from main thread)...\n");
+      snd_pcm_pause(pcm_handle, 0);
+    }
+
+  }
+
+  pthread_join(playbackThread, NULL);
 
   *done = 0;
   
   snd_pcm_drain(pcm_handle);
 
-  if(mode == QUIT){
+  if(IsKeyPressed(KEY_Q)){
     snd_pcm_close(pcm_handle);
   }
 }

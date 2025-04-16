@@ -25,19 +25,18 @@ main(void) {
 
   // --------------------------------------------------------
   InitWindow(1200, 720, "Music Player");
-  B32 playing = 0;
-
+  B32 done = 0;
 
   while(!WindowShouldClose()){
     BeginDrawing();
     ClearBackground(RAYWHITE);
 
-    if(IsKeyPressed(KEY_SPACE) && !playing){
-      playing = 1;
-      printf("playing before :  %d\n", playing);
+    if(IsKeyPressed(KEY_SPACE) && !done){
+      done = 1;
+      printf("done before :  %d\n", done);
       ClearBackground(GREEN);
-      PlaySound(wav, &wavHeader, START, &playing);
-      printf("playing after  :  %d\n", playing);
+      PlaySound(wav, &wavHeader, START, &done);
+      printf("done after  :  %d\n", done);
     }
     else{
       ClearBackground(RAYWHITE);
