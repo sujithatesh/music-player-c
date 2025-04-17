@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <raylib.h>
+#include <sys/mman.h>
 
 #include <pthread.h>
 
@@ -27,6 +28,7 @@ main(void) {
   InitWindow(1200, 720, "Music Player");
   B32 done = 0;
 	snd_pcm_t* pcm_handle = 0;
+	U32 counter = 0;
 	
   while(!WindowShouldClose()){
     BeginDrawing();
@@ -35,6 +37,8 @@ main(void) {
     if(IsKeyPressed(KEY_SPACE) && !done){
       done = 1;
       printf("done before :  %d\n", done);
+			
+			//PrintWaveHeader(&wavHeader);
       ClearBackground(GREEN);
       
 			pcm_handle = PlaySound(wav, &wavHeader, START, &done);
@@ -49,10 +53,17 @@ main(void) {
 			printf("this is inside resume\n");
 			snd_pcm_pause(pcm_handle, 0);
 		}
+		else if(IsKeyPressed(KEY_Q)){
+			snd_pcm_drop(pcm_handle);
+			snd_pcm_close(pcm_handle);
+		}
     else{
       ClearBackground(RAYWHITE);
     }
 		
+		counter++;
+		if(counter > 1200) counter = 0;
+		DrawRectangle(100  + counter,100, 20, 20, RED);
     EndDrawing();
   }
 	

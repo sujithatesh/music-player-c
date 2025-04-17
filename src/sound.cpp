@@ -92,7 +92,7 @@ PlaySound(FILE* wav, WaveHeader* wavHeader, U32 mode, B32* done)
   snd_pcm_hw_params_t *params;
 	
 	
-  S32 rc = snd_pcm_open(&pcm_handle, "default", SND_PCM_STREAM_PLAYBACK, 0);
+  S32 rc = snd_pcm_open(&pcm_handle, "default", SND_PCM_STREAM_PLAYBACK, SND_PCM_ASYNC);
   if (rc < 0) {
     fprintf(stderr, "unable to open pcm device: %s\n", snd_strerror(rc));
   }
@@ -126,38 +126,28 @@ PlaySound(FILE* wav, WaveHeader* wavHeader, U32 mode, B32* done)
     snd_pcm_close(pcm_handle);
   }
 	
-  unsigned char audioBuffer[4096]; 
   U32 playing   = 0;
-	U32 bytesRead = 0;
+	
+	const char *filepath = "../assets/file.wav";
+	int fd = open(filepath, O_RDONLY);
+	
+	unsigned char *mapped_data = (unsigned char *)mmap(NULL, wavHeader->dataSize , PROT_READ, MAP_PRIVATE, fd, 0);
+	unsigned char *audio_data = mapped_data + 44;
 	
 	if (IsKeyPressed(KEY_SPACE) && (playing == 0 || mode == START) && mode != PAUSE) {
 		mode = START;
 		playing = 1;
 		
-		while ((bytesRead = fread(audioBuffer, 1, sizeof(audioBuffer), wav)) > 0) {
-			rc = snd_pcm_writei(pcm_handle, audioBuffer,
-													bytesRead / (wavHeader->bps / 8 * wavHeader->monoFlag));
-			if (rc < 0) {
-				printf("rc < 0, snd_pcm_writei faulted\n");
-				break;
-			}
-			
+		rc = snd_pcm_writei(pcm_handle, audio_data, wavHeader->dataSize / (wavHeader->bps / 8 * wavHeader->monoFlag));
+		
+		if (rc < 0) {
+			printf("rc < 0, snd_pcm_writei faulted\n");
 		}
 		
-  }
+		printf("done with snd_pcm_writei");
+	}
 	
-  *done = 0;
-  
-	
-	
-	
-	/*snd_pcm_nonblock(pcm_handle, 1);
-	snd_pcm_drain(pcm_handle);*/
-	printf("this is non-blocking snd_pcm_drain\n");
-	
-  if(IsKeyPressed(KEY_Q)){
-    snd_pcm_close(pcm_handle);
-  }
+	*done = 0;
 	
 	return pcm_handle;
 }
