@@ -40,18 +40,18 @@ void
 WaveHeaderSetup(WaveHeader* wavHeader, U8* Buffer){
   // Getting WAVE Header
   memcpy(wavHeader->riffId, Buffer, 4);
-  wavHeader->fileSize = FourBit_ASCII_LE(Buffer, 4);
+  wavHeader->fileSize   = FourBit_ASCII_LE(Buffer, 4);
   memcpy(wavHeader->waveId, Buffer + 8, 4);
   memcpy(wavHeader->fmtId, Buffer + 12, 4);
-  wavHeader->chunkSize = FourBit_ASCII_LE(Buffer, 16);
-  wavHeader->typeFmt = TwoBit_ASCII_LE(Buffer, 20);
-  wavHeader->monoFlag = TwoBit_ASCII_LE(Buffer, 22);
+  wavHeader->chunkSize  = FourBit_ASCII_LE(Buffer, 16);
+  wavHeader->typeFmt    = TwoBit_ASCII_LE(Buffer, 20);
+  wavHeader->monoFlag   = TwoBit_ASCII_LE(Buffer, 22);
   wavHeader->sampleFreq = FourBit_ASCII_LE(Buffer, 24);
-  wavHeader->dataRate = FourBit_ASCII_LE(Buffer, 28);
-  wavHeader->alignment = TwoBit_ASCII_LE(Buffer, 32);
-  wavHeader->bps = TwoBit_ASCII_LE(Buffer, 34);
+  wavHeader->dataRate   = FourBit_ASCII_LE(Buffer, 28);
+  wavHeader->alignment  = TwoBit_ASCII_LE(Buffer, 32);
+  wavHeader->bps        = TwoBit_ASCII_LE(Buffer, 34);
   memcpy(wavHeader->dataId, Buffer + 36, 4);
-  wavHeader->dataSize = FourBit_ASCII_LE(Buffer, 40);
+  wavHeader->dataSize   = FourBit_ASCII_LE(Buffer, 40);
 	
 }
 
@@ -62,14 +62,14 @@ PrintWaveHeader(WaveHeader* wavHeader){
   printf("waveId\t  : %.4s\n", wavHeader->waveId);
   printf("fmtId \t  : %.4s\n", wavHeader->fmtId);
   printf("chunkSize : %d\n",   wavHeader->chunkSize);
-  printf("typeFmt : %d\n",   wavHeader->typeFmt);
-  printf("monoFlag : %d\n",   wavHeader->monoFlag);
-  printf("sampleFreq : %d\n",   wavHeader->sampleFreq);
+  printf("typeFmt : %d\n",     wavHeader->typeFmt);
+  printf("monoFlag : %d\n",    wavHeader->monoFlag);
+  printf("sampleFreq : %d\n",  wavHeader->sampleFreq);
   printf("dataRate  : %d\n",   wavHeader->dataRate);
   printf("alignment : %d\n",   wavHeader->alignment);
-  printf("bps\t : %d\n",   wavHeader->bps);
-  printf("dataId\t : %.4s\n",   wavHeader->dataId);
-  printf("dataSize : %d\n",   wavHeader->dataSize);
+  printf("bps\t : %d\n",       wavHeader->bps);
+  printf("dataId\t : %.4s\n",  wavHeader->dataId);
+  printf("dataSize : %d\n",    wavHeader->dataSize);
 }
 
 typedef struct 

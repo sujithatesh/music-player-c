@@ -1,136 +1,231 @@
 #include "base_basic_types.h"
-#include "base_types.h"
 #include <alsa/asoundlib.h>
+#include <raylib.h> 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <raylib.h>
 #include <sys/mman.h>
 
 #include <pthread.h>
 
 #include "sound.cpp"
-#define FILE_PATH "../assets/file.wav"
-#define BUFFER_SIZE 20000
 
-int
-main(void) {
-  U8 Buffer[BUFFER_SIZE];
-  WaveHeader wavHeader;
-  FILE* wav = fopen(FILE_PATH, "rb");
-	
-  U64 file_size = fread(Buffer, 1, BUFFER_SIZE, wav);
-  wavHeader.fileSize = file_size;
-  WaveHeaderSetup(&wavHeader, Buffer);
-  SetTraceLogLevel(LOG_NONE);
-	
-  // --------------------------------------------------------
-  InitWindow(1200, 720, "Music Player");
-  B32 done = 0;
-	U32 counter = 0;
-	U32 fd = fileno(wav);
-	fseek(wav, 44, SEEK_SET);
-	
-	unsigned char *mapped_data = (unsigned char *)mmap(NULL, wavHeader.dataSize , PROT_READ, MAP_PRIVATE, fd, 0);
-	
+typedef struct{
+	U32 playing;
 	snd_pcm_t *pcm_handle;
-	snd_pcm_hw_params_t *params;
-	
-	
-	S32 rc = snd_pcm_open(&pcm_handle, "default", SND_PCM_STREAM_PLAYBACK, SND_PCM_NONBLOCK);
-	if (rc < 0) {
-		fprintf(stderr, "unable to open pcm device: %s\n", snd_strerror(rc));
-	}
-	
-	snd_pcm_hw_params_alloca(&params);
-	
-	snd_pcm_hw_params_any(pcm_handle, params);
-	snd_pcm_hw_params_set_access(pcm_handle, params, SND_PCM_ACCESS_RW_INTERLEAVED);
-	
-	if (wavHeader.bps == 8)
-	{
-		snd_pcm_hw_params_set_format(pcm_handle, params, SND_PCM_FORMAT_U8);
-	} 
-	else if (wavHeader.bps == 16) 
-	{
-		snd_pcm_hw_params_set_format(pcm_handle, params, SND_PCM_FORMAT_S16_LE);
-	} 
-	else 
-	{
-		fprintf(stderr, "Unsupported bits per sample: %d\n", wavHeader.bps);
-		snd_pcm_close(pcm_handle);
-	}
-	
-	//- Setting Hardware Params
-	snd_pcm_hw_params_set_channels(pcm_handle, params, wavHeader.monoFlag);
-	snd_pcm_hw_params_set_rate(pcm_handle, params, wavHeader.sampleFreq, 0);
-	
-	rc = snd_pcm_hw_params(pcm_handle, params);
-	if (rc < 0)
-	{
-		fprintf(stderr, "unable to set hw parameters: %s\n", snd_strerror(rc));
-		snd_pcm_close(pcm_handle);
-	}
-	
-	U32 playing = 0;
-	
-	unsigned char *audio_data = mapped_data + 44;
-	
-	U32 remainingFrames =  wavHeader.dataSize / (wavHeader.bps / 8 * wavHeader.monoFlag);
-	
-  while(!WindowShouldClose()){
-    BeginDrawing();
-    ClearBackground(RAYWHITE);
-		
-    if((IsKeyPressed(KEY_SPACE) && !done) || playing){
-      done = 1;
-			playing = 1;
+	U8 *audio_data;
+	U32 should_stop;
+	U32 totalFrames;
+	U32 remainingFrames;
+	WaveHeader *wavHeader;
+	U32 chunk_size;
+	pthread_mutex_t mutex;
+}AudioContext;
+
+void* audio_thread(void* arg){
+	AudioContext *ctx = (AudioContext*)arg;
+	while(!ctx->should_stop){
+		pthread_mutex_lock(&ctx->mutex);
+		// if there are frames remaining and track is playing write to buffer
+		if (ctx->playing && ctx->remainingFrames > 0) {
+			// checking the frames to write
+			U32 writable_size = (ctx->remainingFrames < ctx->chunk_size) ? ctx->remainingFrames : ctx->chunk_size;
+			S32 rc = snd_pcm_writei(ctx->pcm_handle, ctx->audio_data, writable_size);
 			
-			//PrintWaveHeader(&wavHeader);
-			ClearBackground(GREEN);
-      
-			if (playing == 1) {
-				
-				rc = snd_pcm_writei(pcm_handle, audio_data, remainingFrames);
-				
-				if ( rc == -EAGAIN)
-					continue;
-				
-				if (rc < 0) {
-					playing = 0;
-					printf("rc < 0, snd_pcm_writei faulted\n");
-					break;
+			//buffer is full just continue
+			if (rc == -EAGAIN) {
+				// Buffer is full, just continue
+			}
+			else if (rc < 0) {
+				if (rc == -EPIPE) {
+					// Underrun occurred, prepare the PCM
+					printf("Audio underrun occurred, recovering...\n");
+					snd_pcm_prepare(ctx->pcm_handle);
+				} else {
+					printf("Audio write error: %s\n", snd_strerror(rc));
+					ctx->playing = 0;
 				}
+			}
+			else {
+				// Successfully wrote frames
+				ctx->remainingFrames -= rc;
+				ctx->audio_data += (rc * ctx->wavHeader->bps / 8 * ctx->wavHeader->monoFlag);
 				
-				remainingFrames -= rc;
-				audio_data += (rc * wavHeader.bps / 8 * wavHeader.monoFlag);
-				
-				printf("frameswritten : %d remainingFrames : %d\n", rc, remainingFrames);
-				
-				if (IsKeyPressed(KEY_P)) {
-					printf("this is inside pause\n");
-					snd_pcm_pause(pcm_handle, 1);
-				}
-				else if (IsKeyPressed(KEY_R)) {
-					printf("this is inside resume\n");
-					snd_pcm_pause(pcm_handle, 0);
+				if (ctx->remainingFrames <= 0) {
+					ctx->playing = 0; // Finished playing
+					printf("Audio playback finished\n");
 				}
 			}
 		}
-		else if(IsKeyPressed(KEY_Q)){
-			snd_pcm_drop(pcm_handle);
-			snd_pcm_close(pcm_handle);
-		}
-		else{
-			ClearBackground(RAYWHITE);
-		}
-		counter++;
-		if(counter > 1200) counter = 0;
-		DrawRectangle(100  + counter,100, 20, 20, RED);
-		EndDrawing();
+		pthread_mutex_unlock(&ctx->mutex);
+		usleep(1000);
+	}
+	return NULL;
+}
+
+int main(int arc, char* argv[]) {
+  // init buffer
+	U8 Buffer[1000];
+  WaveHeader wavHeader;
+  
+	// open file in binary mode
+	FILE *wav = fopen(argv[1], "rb");
+	fseek(wav, 0, SEEK_END);
+  U64 file_size = ftell(wav);
+	fseek(wav, 0, SEEK_SET);
+  
+	// find out file size and set wavHeader filesize
+	wavHeader.fileSize = file_size;
+	fread(Buffer, 1, sizeof(Buffer), wav);
+	
+	// populate wavheader
+  WaveHeaderSetup(&wavHeader, Buffer);
+  
+	// verifying wav file format
+	if (strncmp((char*)wavHeader.riffId, "RIFF", 4) != 0 ||
+			strncmp((char*)wavHeader.waveId, "WAVE", 4) != 0 ||
+			strncmp((char*)wavHeader.fmtId, "fmt ", 4) != 0) {
+		fprintf(stderr, "Invalid WAV file format\n");
+		fclose(wav);
+		return -1;
 	}
 	
-	fclose(wav);
+	// no stdout from raylib
+	SetTraceLogLevel(LOG_NONE);
 	
-	return 0;
+  // --------------------------DRAW CYCLE------------------------------
+  InitWindow(1200, 720, "Music Player");
+  
+	// for the red square
+  U32 counter = 0;
+	// file descriptor of wav
+  U32 fd = fileno(wav);
+	// set the file to 44 <-- NOTE(sujith): this needs to change
+  fseek(wav, 44, SEEK_SET);
+	
+	// reading data via mmap instead of fread
+  unsigned char *mapped_data = (unsigned char *)mmap(NULL, wavHeader.dataSize, PROT_READ, MAP_PRIVATE, fd, 0);
+	
+	// pcm_handle and params init
+  snd_pcm_t *pcm_handle;
+  snd_pcm_hw_params_t *params;
+	
+	// open pcm in non blocking mode
+  S32 rc = snd_pcm_open(&pcm_handle, "default", SND_PCM_STREAM_PLAYBACK,SND_PCM_NONBLOCK);
+  if (rc < 0) {
+    fprintf(stderr, "unable to open pcm device: %s\n", snd_strerror(rc));
+  }
+	
+	// params init
+  snd_pcm_hw_params_alloca(&params);
+  snd_pcm_hw_params_any(pcm_handle, params);
+  snd_pcm_hw_params_set_access(pcm_handle, params,SND_PCM_ACCESS_RW_INTERLEAVED);
+	
+	// setup if wav type is U8 or S16LE -- basically bits per sample
+  if (wavHeader.bps == 8) {
+    snd_pcm_hw_params_set_format(pcm_handle, params, SND_PCM_FORMAT_U8);
+  } else if (wavHeader.bps == 16) {
+    snd_pcm_hw_params_set_format(pcm_handle, params, SND_PCM_FORMAT_S16_LE);
+  } else {
+    fprintf(stderr, "Unsupported bits per sample: %d\n", wavHeader.bps);
+    snd_pcm_close(pcm_handle);
+  }
+	
+  //- Setting sample frequency and if track's mode
+  snd_pcm_hw_params_set_channels(pcm_handle, params, wavHeader.monoFlag);
+  snd_pcm_hw_params_set_rate(pcm_handle, params, wavHeader.sampleFreq, 0);
+	
+	// setting params to pcm_handle
+  rc = snd_pcm_hw_params(pcm_handle, params);
+  if (rc < 0) {
+    fprintf(stderr, "unable to set hw parameters: %s\n", snd_strerror(rc));
+    snd_pcm_close(pcm_handle);
+  }
+	
+	// init audio_data
+  unsigned char *audio_data = mapped_data + 44;
+	
+	// finding out the remaining frames
+  U32 remainingFrames =
+		wavHeader.dataSize / (wavHeader.bps / 8 * wavHeader.monoFlag);
+	
+	
+	// Setup AudioContext
+	AudioContext audCon = {0};
+	audCon.playing = 0;
+	audCon.should_stop = 0;
+	audCon.pcm_handle = pcm_handle;
+	audCon.audio_data = audio_data;
+	audCon.remainingFrames = remainingFrames;
+	audCon.totalFrames = wavHeader.dataSize / (wavHeader.bps / 8 * wavHeader.monoFlag);
+	audCon.wavHeader = &wavHeader;
+	
+	audCon.chunk_size = wavHeader.sampleFreq / 100; // 10ms chunks
+	if (audCon.chunk_size < 64) audCon.chunk_size = 64;   // Minimum chunk size
+	if (audCon.chunk_size > 1024) audCon.chunk_size = 1024; // Maximum chunk size
+	
+	// calling audio
+	pthread_mutex_init(&audCon.mutex, NULL);
+	
+	pthread_t audio_thread_id;
+	pthread_create(&audio_thread_id, NULL, audio_thread, &audCon);
+  
+	while (!WindowShouldClose()) {
+    BeginDrawing();
+    ClearBackground(RAYWHITE);
+    DrawFPS(20, 20);
+		
+		if(audCon.playing){
+			ClearBackground(GREEN);
+			float progress = (float)(audCon.totalFrames - audCon.remainingFrames) / audCon.totalFrames;
+			DrawText(TextFormat("Playing... %.1f%%", progress * 100), 20, 50, 20, WHITE);
+		}
+		
+		// starting playback
+    if (IsKeyPressed(KEY_SPACE) || audCon.playing) {
+			pthread_mutex_lock(&audCon.mutex);
+			audCon.playing = 1;
+			pthread_mutex_unlock(&audCon.mutex);
+    } 
+		
+		// pause the playback
+		if (IsKeyPressed(KEY_P)) {
+			pthread_mutex_lock(&audCon.mutex);
+			if (audCon.playing == 1) {
+				snd_pcm_pause(pcm_handle, 1);
+			}  
+			pthread_mutex_unlock(&audCon.mutex);
+		}
+		
+		// resume the playback
+		if (IsKeyPressed(KEY_R)) {
+			pthread_mutex_lock(&audCon.mutex);
+			snd_pcm_pause(pcm_handle, 0);
+			pthread_mutex_unlock(&audCon.mutex);
+		}
+		
+		// quit
+		if (IsKeyPressed(KEY_Q)) {
+			break;
+    } 
+		
+		// Draw a red square going from left to right
+    counter++;
+    if (counter > 1200)
+      counter = 0;
+    DrawRectangle(100 + counter, 100, 20, 20, RED);
+    EndDrawing();
+  }
+	
+	// Cleanup
+	audCon.should_stop = 1;
+	pthread_join(audio_thread_id, NULL);
+	pthread_mutex_destroy(&audCon.mutex);
+	snd_pcm_drop(pcm_handle);
+	snd_pcm_close(pcm_handle);
+	munmap(mapped_data, wavHeader.dataSize);
+	fclose(wav);
+	CloseWindow();
+	
+  return 0;
 }
