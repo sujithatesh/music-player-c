@@ -20,7 +20,7 @@ typedef struct{
 	U32 totalFrames;
 	U32 framesWritten;
 	U32 remainingFrames;
-	WaveHeader *wavHeader;
+	WaveHeader *header;
 	U32 chunk_size;
 	pthread_mutex_t mutex;
 }AudioContext;
@@ -36,17 +36,19 @@ char* open_file_dialog() {
 	gint res;
 	char *selected_filename = NULL;
 	
-	dialog = gtk_file_chooser_native_new("Open File",
-																			 NULL,
-																			 GTK_FILE_CHOOSER_ACTION_OPEN,
-																			 "_Open",
-																			 "_Cancel");
+	dialog = gtk_file_chooser_native_new("Open File", NULL, GTK_FILE_CHOOSER_ACTION_OPEN, "_Open", "_Cancel");
 	
 	// Add file filters...
-	GtkFileFilter *filter = gtk_file_filter_new();
-	gtk_file_filter_set_name(filter, "WAV Files");
-	gtk_file_filter_add_pattern(filter, "*.wav");
-	gtk_file_chooser_add_filter(GTK_FILE_CHOOSER(dialog), filter);
+	GtkFileFilter *wav_filter = gtk_file_filter_new();
+	gtk_file_filter_set_name(wav_filter, "WAV Files");
+	gtk_file_filter_add_pattern(wav_filter, "*.wav");
+	gtk_file_chooser_add_filter(GTK_FILE_CHOOSER(dialog), wav_filter);
+	
+	// Add file filters...
+	GtkFileFilter *all_filter = gtk_file_filter_new();
+	gtk_file_filter_set_name(all_filter, "All");
+	gtk_file_filter_add_pattern(all_filter, "*");
+	gtk_file_chooser_add_filter(GTK_FILE_CHOOSER(dialog), all_filter);
 	
 	res = gtk_native_dialog_run(GTK_NATIVE_DIALOG(dialog));
 	
@@ -71,7 +73,7 @@ void get_formatted_time_from_sec(formatted_time *for_time, U32 sec){
 
 // Get total track duration in seconds
 double get_track_duration(AudioContext *ctx) {
-	return (double)ctx->totalFrames / ctx->wavHeader->sampleFreq;
+	return (double)ctx->totalFrames / ctx->header->sampleFreq;
 }
 
 // NOTE(sujith): this needs to be abstracted away
@@ -93,7 +95,7 @@ U32 get_playback_position(AudioContext *ctx){
 	// caculate frames without delay
 	U32 frames_played = ctx->framesWritten - ((delay > 0) ? delay : 0);
 	
-	return (U32)frames_played / ctx->wavHeader->sampleFreq;
+	return (U32)frames_played / ctx->header->sampleFreq;
 }
 
 // audio loop
@@ -125,7 +127,7 @@ void* audio_thread(void* arg){
 			else {
 				// Successfully wrote frames
 				ctx->remainingFrames -= rc;
-				ctx->audio_data += (rc * ctx->wavHeader->bps / 8 * ctx->wavHeader->monoFlag);
+				ctx->audio_data += (rc * ctx->header->bitsPerSample / 8 * ctx->header->noOfChannels);
 				// update frames written
 				ctx->framesWritten += rc;
 				if (ctx->remainingFrames <= 0) {
@@ -179,41 +181,38 @@ int main(int argc, char* argv[]) {
 		file_path = argv[1];
 	}
 	
-	// init buffer
-	U8 Buffer[1000];
-	WaveHeader wavHeader;
-	
 	// open file in binary mode
-	FILE *wav = fopen(file_path, "rb");
+	FILE *file = fopen(file_path, "rb");
+	fseek(file, 0, SEEK_END);
+	U64 file_size = ftell(file);
+	fseek(file, 0, SEEK_SET);
 	if(argc == 1)
 		g_free(file_path);
-	fseek(wav, 0, SEEK_END);
-	U64 file_size = ftell(wav);
-	fseek(wav, 0, SEEK_SET);
 	
-	// find out file size and set wavHeader filesize
-	wavHeader.fileSize = file_size;
-	fread(Buffer, 1, sizeof(Buffer), wav);
+	// TODO(sujith): remove the WaveHeader and have a generic header(?)
+	// init buffer
+	U8 Buffer[1000];
+	WaveHeader header;
 	
-	// populate wavheader
-	WaveHeaderSetup(&wavHeader, Buffer);
+	// find out file size and set header filesize
+	header.fileSize = file_size;
+	fread(Buffer, 1, sizeof(Buffer), file);
 	
-	// verifying wav file format
-	if (strncmp((char*)wavHeader.riffId, "RIFF", 4) != 0 ||
-			strncmp((char*)wavHeader.waveId, "WAVE", 4) != 0 ||
-			strncmp((char*)wavHeader.fmtId, "fmt ", 4) != 0) {
-		fprintf(stderr, "Invalid WAV file format\n");
-		fclose(wav);
-		return -1;
+	// populate header
+	file_type file_extension = HeaderSetup(&header, Buffer);
+	
+	// file descriptor
+	U32 fd = fileno(file);
+	if(file_extension == WAV_FILE){
+		// set the file to 44 <-- NOTE(sujith): this needs to change
+		fseek(file, 44, SEEK_SET);
+	}
+	else {
+		return 0;
 	}
 	
-	// file descriptor of wav
-	U32 fd = fileno(wav);
-	// set the file to 44 <-- NOTE(sujith): this needs to change
-	fseek(wav, 44, SEEK_SET);
-	
 	// reading data via mmap instead of fread
-	unsigned char *mapped_data = (unsigned char *)mmap(NULL, wavHeader.dataSize, PROT_READ, MAP_PRIVATE, fd, 0);
+	unsigned char *mapped_data = (unsigned char *)mmap(NULL, header.dataSize, PROT_READ, MAP_PRIVATE, fd, 0);
 	
 	// pcm_handle and params init
 	snd_pcm_t *pcm_handle;
@@ -231,18 +230,18 @@ int main(int argc, char* argv[]) {
 	snd_pcm_hw_params_set_access(pcm_handle, params,SND_PCM_ACCESS_RW_INTERLEAVED);
 	
 	// setup if wav type is U8 or S16LE -- basically bits per sample
-	if (wavHeader.bps == 8) {
+	if (header.bitsPerSample == 8) {
 		snd_pcm_hw_params_set_format(pcm_handle, params, SND_PCM_FORMAT_U8);
-	} else if (wavHeader.bps == 16) {
+	} else if (header.bitsPerSample == 16) {
 		snd_pcm_hw_params_set_format(pcm_handle, params, SND_PCM_FORMAT_S16_LE);
 	} else {
-		fprintf(stderr, "Unsupported bits per sample: %d\n", wavHeader.bps);
+		fprintf(stderr, "Unsupported bits per sample: %d\n", header.bitsPerSample);
 		snd_pcm_close(pcm_handle);
 	}
 	
 	//- Setting sample frequency and if track's mode
-	snd_pcm_hw_params_set_channels(pcm_handle, params, wavHeader.monoFlag);
-	snd_pcm_hw_params_set_rate(pcm_handle, params, wavHeader.sampleFreq, 0);
+	snd_pcm_hw_params_set_channels(pcm_handle, params, header.noOfChannels);
+	snd_pcm_hw_params_set_rate(pcm_handle, params, header.sampleFreq, 0);
 	
 	// setting params to pcm_handle
 	rc = snd_pcm_hw_params(pcm_handle, params);
@@ -251,13 +250,17 @@ int main(int argc, char* argv[]) {
 		snd_pcm_close(pcm_handle);
 	}
 	
-	// TODO(sujith): need to calculate header offset
 	// init audio_data
-	unsigned char *audio_data = mapped_data + 44;
+	unsigned char *audio_data = 0;
+	if(file_extension == WAV_FILE){
+		// TODO(sujith): need to calculate header offset
+		// init audio_data
+		audio_data = mapped_data + 44;
+	}
 	
 	// finding out the remaining frames
 	U32 remainingFrames =
-		wavHeader.dataSize / (wavHeader.bps / 8 * wavHeader.monoFlag);
+		header.dataSize / (header.bitsPerSample / 8 * header.noOfChannels);
 	
 	
 	// Setup AudioContext
@@ -269,10 +272,10 @@ int main(int argc, char* argv[]) {
 	audCon.audio_data = audio_data;
 	audCon.remainingFrames = remainingFrames;
 	audCon.framesWritten = 0;
-	audCon.totalFrames = wavHeader.dataSize / (wavHeader.bps / 8 * wavHeader.monoFlag);
-	audCon.wavHeader = &wavHeader;
+	audCon.totalFrames = header.dataSize / (header.bitsPerSample / 8 * header.noOfChannels);
+	audCon.header = &header;
 	
-	audCon.chunk_size = wavHeader.sampleFreq / 100; // 10ms chunks
+	audCon.chunk_size = header.sampleFreq / 100; // 10ms chunks
 	if (audCon.chunk_size < 64) audCon.chunk_size = 64;   // Minimum chunk size
 	if (audCon.chunk_size > 1024) audCon.chunk_size = 1024; // Maximum chunk size
 	
@@ -285,7 +288,7 @@ int main(int argc, char* argv[]) {
 	F32 track_duration = get_track_duration(&audCon);
 	formatted_time total_duration  = {0}; 
 	get_formatted_time_from_sec(&total_duration, track_duration);
-	// setting current_pos to 0
+	// setting current_pos of file to 0
 	F32 current_pos = 0;
 	
 	// no stdout from raylib
@@ -297,14 +300,14 @@ int main(int argc, char* argv[]) {
 	
 	// Load Album art // TODO(sujith): retreive this dynamically and add a fallback image
 	Image img = LoadImage("/home/sujith/Music/To Pimp A Butterfly/cover.jpg");
-	ImageResize(&img, 100, 100);
+	ImageResize(&img, GetScreenWidth() * 0.1, GetScreenWidth() * 0.1 );
 	
 	Texture2D texture = LoadTextureFromImage(img);
 	UnloadImage(img);
 	
 	while (!WindowShouldClose()) {
 		BeginDrawing();
-		// Color wal_color = GetColor((found_pywal_colors) ? *pywal_background_color : 0x6F7587FF);
+		// pywal or default color
 		Color wal_color = GetColor((found_pywal_colors) ? pywal_background_color_int : 0x6F7587FF);
 		ClearBackground(wal_color);
 		
@@ -352,8 +355,8 @@ int main(int argc, char* argv[]) {
 	pthread_mutex_destroy(&audCon.mutex);
 	snd_pcm_drop(pcm_handle);
 	snd_pcm_close(pcm_handle);
-	munmap(mapped_data, wavHeader.dataSize);
-	fclose(wav);
+	munmap(mapped_data, header.dataSize);
+	fclose(file);
 	CloseWindow();
 	
   return 0;
