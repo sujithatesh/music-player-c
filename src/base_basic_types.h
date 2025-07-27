@@ -1,6 +1,4 @@
-#ifndef BASE_BASIC_TYPES_H
-#define BASE_BASIC_TYPES_H
-
+#pragma once
 #include <stdint.h>
 
 typedef uint8_t U8;
@@ -18,4 +16,3 @@ typedef S64 B64;
 typedef float F32;
 typedef double F64;
 
-#endif

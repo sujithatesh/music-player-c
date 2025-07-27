@@ -10,6 +10,7 @@
 #include "base_basic_types.h"
 #include "sound.c"
 #include "generic.h"
+#include "util.c"
 
 typedef struct{
 	U32 isPaused;
@@ -44,7 +45,6 @@ char* open_file_dialog() {
 	gtk_file_filter_add_pattern(wav_filter, "*.wav");
 	gtk_file_chooser_add_filter(GTK_FILE_CHOOSER(dialog), wav_filter);
 	
-	// Add file filters...
 	GtkFileFilter *all_filter = gtk_file_filter_new();
 	gtk_file_filter_set_name(all_filter, "All");
 	gtk_file_filter_add_pattern(all_filter, "*");
@@ -55,7 +55,6 @@ char* open_file_dialog() {
 	if (res == GTK_RESPONSE_ACCEPT) {
 		selected_filename = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(dialog));
 	}
-	
 	g_object_unref(dialog);
 	while (gtk_events_pending()) {
 		gtk_main_iteration();
@@ -141,6 +140,18 @@ void* audio_thread(void* arg){
 	return NULL;
 }
 
+void getTagDetails(U8* value, String8 *current_byte, char **artist_name, U8 byte_padding_u32){
+	while(true){
+		if(!compareValueStringSlice(value, *current_byte, 0, 4)){
+			current_byte->str += byte_padding_u32;
+		}
+		else{
+			*artist_name = (char*)(current_byte->str + byte_padding_u32);
+			break;
+		}
+	}
+}
+
 int main(int argc, char* argv[]) {
 	// trying to set pywal colors
 	char *pywal_colors = "/home/sujith/.cache/wal/colors";
@@ -177,8 +188,11 @@ int main(int argc, char* argv[]) {
 		gtk_init(&argc, &argv);
 		file_path = open_file_dialog();
 	}
-	else {
-		file_path = argv[1];
+	else if(argc == 1) {
+		file_path = argv[0];
+	}
+	if (file_path == NULL){
+		printf("No file provided\n");
 	}
 	
 	// open file in binary mode
@@ -208,11 +222,20 @@ int main(int argc, char* argv[]) {
 		fseek(file, 44, SEEK_SET);
 	}
 	else {
+		// TODO(sujith): find a way to add errors
 		return 0;
 	}
 	
+	U32 offset = header.dataSize;
+	fseek(file, offset, SEEK_SET);
+	
+	U32 temp = header.fileSize - offset;
+	U8 BUFF[temp];
+	fread(BUFF, 1, temp, file);
+	
+	
 	// reading data via mmap instead of fread
-	unsigned char *mapped_data = (unsigned char *)mmap(NULL, header.dataSize, PROT_READ, MAP_PRIVATE, fd, 0);
+	unsigned char *mapped_data = (unsigned char *)mmap(NULL, header.dataSize, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
 	
 	// pcm_handle and params init
 	snd_pcm_t *pcm_handle;
@@ -258,6 +281,42 @@ int main(int argc, char* argv[]) {
 		audio_data = mapped_data + 44;
 	}
 	
+	// fetching metadata
+	U32 *metadata_start = (U32*)(audio_data + header.dataSize);
+	
+	String8 first_string_byte = {.str = (U8*)metadata_start, .size = 300};
+	B8 compare = compareValueStringSlice((U8*)"LIST", first_string_byte, 0, 4);
+	String8 byte_padding = {.str = (U8*)metadata_start + 4, .size = 1};
+	U32 byte_padding_u32 = atoi((char*)byte_padding.str);
+	
+	B8 second_compare = 0;
+	String8 second_string_byte = {0};
+	char* artist_name = 0;
+	char* album_name = 0;
+	/*char* song_name = 0;
+	char* creation_date = 0;
+	char* genre = 0;*/
+	
+	if(compare){
+		second_string_byte.str = (first_string_byte.str + byte_padding_u32);
+		second_string_byte.size = 8;
+		second_compare = compareValueStringSlice((U8*)"INFO", second_string_byte, 0, 4);
+		if(!second_compare) goto skip_metadata;
+	}
+	
+	String8 current_byte = {.str = second_string_byte.str + 4, .size = byte_padding_u32};
+	// Artist Name
+	getTagDetails((U8*)"IART", &current_byte, &artist_name, byte_padding_u32);
+	// Album Name
+	getTagDetails((U8*)"IPRD", &current_byte, &album_name, byte_padding_u32);
+	/*// Song Name
+	getTagDetails((U8*)"INAM", &current_byte, &song_name, byte_padding_u32);
+	// Creation Date
+	getTagDetails((U8*)"ICRD", &current_byte, &creation_date, byte_padding_u32);
+	// Genre
+	getTagDetails((U8*)"IGNR", &current_byte, &genre, byte_padding_u32);*/
+	
+	skip_metadata :
 	// finding out the remaining frames
 	U32 remainingFrames =
 		header.dataSize / (header.bitsPerSample / 8 * header.noOfChannels);
@@ -319,6 +378,10 @@ int main(int argc, char* argv[]) {
 		formatted_time current_duration = {0};
 		get_formatted_time_from_sec(&current_duration, current_pos);
 		DrawText(TextFormat("%02d:%02d / %02d:%02d", current_duration.min, current_duration.sec, total_duration.min, total_duration.sec), 20, 50, 20, RED);
+		DrawText(album_name, 20, 110, 20, GREEN);
+		DrawText(artist_name, 20, 130, 20, GREEN);
+		/*DrawText(creation_date, 20, 130, 20, GREEN);
+		DrawText(genre, 20, 140, 20, GREEN);*/
 		
 		// get current playback pos
 		current_pos = get_playback_position(&audCon);
@@ -344,10 +407,10 @@ int main(int argc, char* argv[]) {
 		// quit
 		if (IsKeyPressed(KEY_Q)) {
 			break;
-    } 
+		} 
 		
-    EndDrawing();
-  }
+		EndDrawing();
+	}
 	
 	// Cleanup
 	audCon.should_stop = 1;
@@ -359,5 +422,5 @@ int main(int argc, char* argv[]) {
 	fclose(file);
 	CloseWindow();
 	
-  return 0;
+	return 0;
 }

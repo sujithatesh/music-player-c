@@ -1,6 +1,6 @@
 /* date = March 31st 2025 5:18 pm */
 
-#ifndef BASE_TYPES_H
+#pragma once
 #define BASE_TYPES_H
 #include <sys/mman.h>
 #include <stdlib.h>
@@ -47,23 +47,3 @@ typedef struct StringDecode{
 	U32 codepoint;
 	U32 size;
 } StringDecode;
-
-
-// NOTE(sujith): Arena Types
-
-typedef struct Arena{
-	void* memory;
-	U64 capacity;
-	U64 used;
-} Arena;
-
-
-Arena
-createArena(U64 size){
-	void* memory = (void*)mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-	
-	U64 used = 0;
-	
-	return (Arena){.memory = memory, .capacity = size, .used = used};
-}
-#endif //BASE_TYPES_H
