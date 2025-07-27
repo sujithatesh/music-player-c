@@ -32,6 +32,35 @@ typedef struct {
 	U8 sec;
 } formatted_time;
 
+typedef struct{
+	Rectangle rec;
+	void* onclick;
+	void* onhover;
+	Color color;
+	String8 title;
+} Button;
+
+B8 button_is_hovering(Button *button){
+	U32 mouse_x = GetMouseX();
+	U32 mouse_y = GetMouseY();
+	if(mouse_x >= button->rec.x && mouse_x <= button->rec.x + button->rec.width && mouse_y >= button->rec.y && mouse_y <= button->rec.y + button->rec.height){
+		return 1;
+	}
+	return 0;
+}
+
+void pause_button_on_click(Button *button, B8* pause_button_clicked){
+	if(button_is_hovering(button)){
+		*pause_button_clicked = 1;
+	}
+}
+
+void play_button_on_click(Button *button, B8* play_button_clicked){
+	if(button_is_hovering(button)){
+		*play_button_clicked = 1;
+	}
+}
+
 char* open_file_dialog() {
 	GtkFileChooserNative *dialog;
 	gint res;
@@ -43,7 +72,6 @@ char* open_file_dialog() {
 	GtkFileFilter *wav_filter = gtk_file_filter_new();
 	gtk_file_filter_set_name(wav_filter, "WAV Files");
 	gtk_file_filter_add_pattern(wav_filter, "*.wav");
-	gtk_file_chooser_add_filter(GTK_FILE_CHOOSER(dialog), wav_filter);
 	
 	GtkFileFilter *all_filter = gtk_file_filter_new();
 	gtk_file_filter_set_name(all_filter, "All");
@@ -140,16 +168,22 @@ void* audio_thread(void* arg){
 	return NULL;
 }
 
-void getTagDetails(U8* value, String8 *current_byte, char **artist_name, U8 byte_padding_u32){
+void getTagDetails(U8* value, String8 *current_byte, char **tag_detail, U8 byte_padding_u32){
 	while(true){
 		if(!compareValueStringSlice(value, *current_byte, 0, 4)){
 			current_byte->str += byte_padding_u32;
 		}
 		else{
-			*artist_name = (char*)(current_byte->str + byte_padding_u32);
+			*tag_detail = (char*)(current_byte->str + byte_padding_u32);
 			break;
 		}
 	}
+}
+
+void DrawButton(Button *clickable_rec){
+	DrawRectangle(clickable_rec->rec.x, clickable_rec->rec.y, clickable_rec->rec.width, clickable_rec->rec.height, clickable_rec->color);
+	DrawText((char*)clickable_rec->title.str, clickable_rec->rec.x  +  20,  clickable_rec->rec.y + 10, 25, BLACK);
+	return;
 }
 
 int main(int argc, char* argv[]) {
@@ -183,7 +217,7 @@ int main(int argc, char* argv[]) {
 	
 	// TODO(sujith): change this to native dialog
 	// open file
-	char *file_path;
+	char *file_path = 0;
 	if(argc == 1){
 		gtk_init(&argc, &argv);
 		file_path = open_file_dialog();
@@ -193,6 +227,7 @@ int main(int argc, char* argv[]) {
 	}
 	if (file_path == NULL){
 		printf("No file provided\n");
+		return 0;
 	}
 	
 	// open file in binary mode
@@ -381,14 +416,37 @@ int main(int argc, char* argv[]) {
 		DrawText(TextFormat("%02d:%02d / %02d:%02d", current_duration.min, current_duration.sec, total_duration.min, total_duration.sec), 20, 50, 20, RED);
 		DrawText(album_name, 20, 110, 20, GREEN);
 		DrawText(artist_name, 20, 130, 20, GREEN);
-		/*DrawText(creation_date, 20, 130, 20, GREEN);
-		DrawText(genre, 20, 140, 20, GREEN);*/
+		
+		U32 SCREEN_WIDTH = GetScreenWidth();
+		U32 SCREEN_HEIGHT = GetScreenHeight();
+		
+		Rectangle pauseRec = {.x = ( SCREEN_WIDTH/ 2 - 120), .y = (3 * SCREEN_HEIGHT / 4 - 20), .width = 100, .height = 40};
+		Button pause_button = {.rec = pauseRec, .color = RED, .title = {.str = (U8*)"PAUSE", .size = 5}, .onhover = 0, .onclick = 0};
+		DrawButton(&pause_button);
+		pause_button.onclick = (void*)pause_button_on_click;
+		
+		Rectangle playRec = {.x = (SCREEN_WIDTH / 2 + 80), .y = (3 * SCREEN_HEIGHT / 4 - 20), .width = 100, .height = 40};
+		Button play_button = {.rec = playRec, .color = RED, .title = {.str = (U8*)"PLAY", .size = 4}, .onhover = 0, .onclick = 0};
+		DrawButton(&play_button);
+		play_button.onclick = (void*)play_button_on_click;
 		
 		// get current playback pos
 		current_pos = get_playback_position(&audCon);
 		
+		B8 pause_button_clicked = 0;
+		B8 play_button_clicked = 0;
+		
+		if(IsMouseButtonPressed(0)){
+			if(button_is_hovering(&pause_button)){
+				((void (*)(Button*, B8*))pause_button.onclick)(&pause_button, &pause_button_clicked);
+			}
+			if(button_is_hovering(&play_button)){
+				((void (*)(Button*, B8*))play_button.onclick)(&play_button, &play_button_clicked);
+			}
+		}
+		
 		// pause the playback
-		if (IsKeyPressed(KEY_P)) {
+		if (IsKeyPressed(KEY_P) || pause_button_clicked) {
 			pthread_mutex_lock(&audCon.mutex);
 			if (audCon.isPaused == 0) {
 				snd_pcm_pause(pcm_handle, 1);
@@ -398,7 +456,7 @@ int main(int argc, char* argv[]) {
 		}
 		
 		// resume the playback
-		if (IsKeyPressed(KEY_R)) {
+		if (IsKeyPressed(KEY_R) || play_button_clicked) {
 			pthread_mutex_lock(&audCon.mutex);
 			snd_pcm_pause(pcm_handle, 0);
 			audCon.isPaused = 0;

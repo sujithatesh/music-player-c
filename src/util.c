@@ -4,13 +4,13 @@
 #include "base_basic_types.h"
 #include <stdio.h>
 
-static void println(String8 *string){
-	for(int i = 0; i < string->size; i++){
-		if(string->str[i] != '\0') printf("%c", string->str[i]);
-	}
-	printf("\n");
-	return;
-}
+//static void println(String8 *string){
+//for(int i = 0; i < string->size; i++){
+//if(string->str[i] != '\0') printf("%c", string->str[i]);
+//}
+//printf("\n");
+//return;
+//}
 
 
 //static B8 compareStrings(String8 string1, String8 string2){
