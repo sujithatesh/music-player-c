@@ -303,6 +303,7 @@ int main(int argc, char* argv[]) {
 		second_compare = compareValueStringSlice((U8*)"INFO", second_string_byte, 0, 4);
 		if(!second_compare) goto skip_metadata;
 	}
+	else goto skip_metadata;
 	
 	String8 current_byte = {.str = second_string_byte.str + 4, .size = byte_padding_u32};
 	// Artist Name
