@@ -49,15 +49,14 @@ B8 button_is_hovering(Button *button){
 	return 0;
 }
 
-void pause_button_on_click(Button *button, B8* pause_button_clicked){
-	if(button_is_hovering(button)){
+void pause_button_on_click(Button *button, B8* pause_button_clicked, String8 play_pause[]){
+	if(*pause_button_clicked == 0){
 		*pause_button_clicked = 1;
+		button->title = play_pause[0];
 	}
-}
-
-void play_button_on_click(Button *button, B8* play_button_clicked){
-	if(button_is_hovering(button)){
-		*play_button_clicked = 1;
+	else if(*pause_button_clicked == 1){
+		*pause_button_clicked = 0;
+		button->title = play_pause[1];
 	}
 }
 
@@ -328,9 +327,6 @@ int main(int argc, char* argv[]) {
 	String8 second_string_byte = {0};
 	char* artist_name = 0;
 	char* album_name = 0;
-	/*char* song_name = 0;
-	char* creation_date = 0;
-	char* genre = 0;*/
 	
 	if(compare){
 		second_string_byte.str = (first_string_byte.str + byte_padding_u32);
@@ -345,12 +341,6 @@ int main(int argc, char* argv[]) {
 	getTagDetails((U8*)"IART", &current_byte, &artist_name, byte_padding_u32);
 	// Album Name
 	getTagDetails((U8*)"IPRD", &current_byte, &album_name, byte_padding_u32);
-	/*// Song Name
-	getTagDetails((U8*)"INAM", &current_byte, &song_name, byte_padding_u32);
-	// Creation Date
-	getTagDetails((U8*)"ICRD", &current_byte, &creation_date, byte_padding_u32);
-	// Genre
-	getTagDetails((U8*)"IGNR", &current_byte, &genre, byte_padding_u32);*/
 	
 	skip_metadata :
 	// finding out the remaining frames
@@ -400,6 +390,30 @@ int main(int argc, char* argv[]) {
 	Texture2D texture = LoadTextureFromImage(img);
 	UnloadImage(img);
 	
+	// pause unpause state
+	B8 pause_button_clicked = 0;
+	String8 play_pause[2] = {(String8){.str = (U8*)"Play", .size = 4}, (String8){.str = (U8*)"Pause", .size = 5}};
+	U32 SCREEN_WIDTH = GetScreenWidth();
+	U32 SCREEN_HEIGHT = GetScreenHeight();
+	
+	Rectangle pauseRec = {.x = ( SCREEN_WIDTH/ 2 - 50), 
+		.y = (3 * SCREEN_HEIGHT / 4 - 20), 
+		.width = 100, 
+		.height = 40
+	};
+	
+	Button pause_button = {
+		.rec = pauseRec, .color = RED, 
+		.title = {
+			.str = (U8*)"Pause", 
+			.size = 5
+		}, 
+		.onhover = 0, 
+		.onclick = 0
+	};
+	
+	pause_button.onclick = (void*)pause_button_on_click;
+	
 	while (!WindowShouldClose()) {
 		BeginDrawing();
 		// pywal or default color
@@ -414,39 +428,23 @@ int main(int argc, char* argv[]) {
 		formatted_time current_duration = {0};
 		get_formatted_time_from_sec(&current_duration, current_pos);
 		DrawText(TextFormat("%02d:%02d / %02d:%02d", current_duration.min, current_duration.sec, total_duration.min, total_duration.sec), 20, 50, 20, RED);
-		DrawText(album_name, 20, 110, 20, GREEN);
-		DrawText(artist_name, 20, 130, 20, GREEN);
+		DrawText(album_name ? album_name : "Unknown album", 20, 110, 20, GREEN);
+		DrawText(artist_name ? artist_name : "Unknown artist", 20, 130, 20, GREEN);
 		
-		U32 SCREEN_WIDTH = GetScreenWidth();
-		U32 SCREEN_HEIGHT = GetScreenHeight();
-		
-		Rectangle pauseRec = {.x = ( SCREEN_WIDTH/ 2 - 120), .y = (3 * SCREEN_HEIGHT / 4 - 20), .width = 100, .height = 40};
-		Button pause_button = {.rec = pauseRec, .color = RED, .title = {.str = (U8*)"PAUSE", .size = 5}, .onhover = 0, .onclick = 0};
 		DrawButton(&pause_button);
-		pause_button.onclick = (void*)pause_button_on_click;
-		
-		Rectangle playRec = {.x = (SCREEN_WIDTH / 2 + 80), .y = (3 * SCREEN_HEIGHT / 4 - 20), .width = 100, .height = 40};
-		Button play_button = {.rec = playRec, .color = RED, .title = {.str = (U8*)"PLAY", .size = 4}, .onhover = 0, .onclick = 0};
-		DrawButton(&play_button);
-		play_button.onclick = (void*)play_button_on_click;
 		
 		// get current playback pos
 		current_pos = get_playback_position(&audCon);
 		
-		B8 pause_button_clicked = 0;
-		B8 play_button_clicked = 0;
-		
-		if(IsMouseButtonPressed(0)){
-			if(button_is_hovering(&pause_button)){
-				((void (*)(Button*, B8*))pause_button.onclick)(&pause_button, &pause_button_clicked);
-			}
-			if(button_is_hovering(&play_button)){
-				((void (*)(Button*, B8*))play_button.onclick)(&play_button, &play_button_clicked);
+		B8 space_pressed = IsKeyPressed(KEY_SPACE);
+		if(IsMouseButtonPressed(0) || space_pressed){
+			if(button_is_hovering(&pause_button) || space_pressed){
+				((void (*)(Button*, B8*, String8*))pause_button.onclick)(&pause_button, &pause_button_clicked, play_pause);
 			}
 		}
 		
 		// pause the playback
-		if (IsKeyPressed(KEY_P) || pause_button_clicked) {
+		if (pause_button_clicked == 1) {
 			pthread_mutex_lock(&audCon.mutex);
 			if (audCon.isPaused == 0) {
 				snd_pcm_pause(pcm_handle, 1);
@@ -456,7 +454,7 @@ int main(int argc, char* argv[]) {
 		}
 		
 		// resume the playback
-		if (IsKeyPressed(KEY_R) || play_button_clicked) {
+		if (pause_button_clicked == 0) {
 			pthread_mutex_lock(&audCon.mutex);
 			snd_pcm_pause(pcm_handle, 0);
 			audCon.isPaused = 0;
