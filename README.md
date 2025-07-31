@@ -1,3 +1,3 @@
 # Music Player 
 - [x] Plays wav files
-- [] Pause/Resume feature
+- [x] Pause/Resume feature
