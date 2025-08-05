@@ -1,8 +1,0 @@
-TODO:
-[x] Implement Pause/Play feature
-	- Found "snd_pcm_pause" -> can pause and resume audio
-	- Need a way to send this to the function when running?
-		-> Should I have keyboard input in function? : For now using Raylib to cover the 
-			 keyboard input
-
-[] Wayland screen native
