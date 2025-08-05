@@ -1,13 +1,8 @@
-#pragma once
-#ifndef MODE_ENUM_H
-#include "generic.h"
-#define MODE_ENUM_H
 
 typedef enum {
 	WAV_FILE,
 	NOT_SUPPORTED
 } file_type;
-#endif
 
 // WAV HEADER
 typedef struct{

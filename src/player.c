@@ -1,16 +1,18 @@
 #include <alsa/asoundlib.h>
-#include <raylib.h> 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 #include <sys/mman.h>
 #include <pthread.h>
-#include <gtk/gtk.h>
 
+#include "raylib.h"
 #include "base_basic_types.h"
+
+#include "base_types.c"
+#include "utils.c"
+#include "string_functions.c"
 #include "sound.c"
-#include "generic.h"
-#include "util.c"
+#include "linux.c"
+#include "generic.c"
+
+#define font_size 20
 
 typedef struct{
 	U32 isPaused;
@@ -58,35 +60,6 @@ void pause_button_on_click(Button *button, B8* pause_button_clicked, String8 pla
 		*pause_button_clicked = 0;
 		button->title = play_pause[1];
 	}
-}
-
-char* open_file_dialog() {
-	GtkFileChooserNative *dialog;
-	gint res;
-	char *selected_filename = NULL;
-	
-	dialog = gtk_file_chooser_native_new("Open File", NULL, GTK_FILE_CHOOSER_ACTION_OPEN, "_Open", "_Cancel");
-	
-	// Add file filters...
-	GtkFileFilter *wav_filter = gtk_file_filter_new();
-	gtk_file_filter_set_name(wav_filter, "WAV Files");
-	gtk_file_filter_add_pattern(wav_filter, "*.wav");
-	
-	GtkFileFilter *all_filter = gtk_file_filter_new();
-	gtk_file_filter_set_name(all_filter, "All");
-	gtk_file_filter_add_pattern(all_filter, "*");
-	gtk_file_chooser_add_filter(GTK_FILE_CHOOSER(dialog), all_filter);
-	
-	res = gtk_native_dialog_run(GTK_NATIVE_DIALOG(dialog));
-	
-	if (res == GTK_RESPONSE_ACCEPT) {
-		selected_filename = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(dialog));
-	}
-	g_object_unref(dialog);
-	while (gtk_events_pending()) {
-		gtk_main_iteration();
-	}
-	return selected_filename;
 }
 
 // seconds to min and sec
@@ -181,16 +154,47 @@ void getTagDetails(U8* value, String8 *current_byte, char **tag_detail, U8 byte_
 
 void DrawButton(Button *clickable_rec){
 	DrawRectangle(clickable_rec->rec.x, clickable_rec->rec.y, clickable_rec->rec.width, clickable_rec->rec.height, clickable_rec->color);
-	DrawText((char*)clickable_rec->title.str, clickable_rec->rec.x  +  20,  clickable_rec->rec.y + 10, 25, BLACK);
+	DrawText((char*)clickable_rec->title.str, clickable_rec->rec.x  + font_size,  clickable_rec->rec.y + font_size , font_size * clickable_rec->title.size, BLACK);
 	return;
+}
+
+void DrawFileOpenDialog(Color found_pywal_colors){
+	SetTraceLogLevel(LOG_NONE);
+	SetConfigFlags(FLAG_VSYNC_HINT);
+	InitWindow(1200, 720, "File Open Dialog");
+	
+	Arena text_arena = arena_commit(1024 * 1024);
+	
+	String8 current_directory = {0};
+	current_directory.str = arena_alloc(&text_arena, 1024);
+	
+	GetCurrentDirectory(&current_directory);
+	
+	FileEntry* entries[1024] = {0};
+	U8 entry_count = 0;
+	
+	LoadDirectory(&text_arena, current_directory, entries, &entry_count);
+	
+	while(!WindowShouldClose()){
+		BeginDrawing();
+		ClearBackground(found_pywal_colors);
+		for(U32 temp = 0; temp < entry_count; temp++){
+			DrawText((char*)entries[temp]->name.str, font_size * 2, temp * font_size, font_size, RED);
+		}
+		if(IsKeyPressed(KEY_Q)) break;
+		EndDrawing();
+	}
+	arena_destroy(&text_arena);
 }
 
 int main(int argc, char* argv[]) {
 	// trying to set pywal colors
+	// TODO(sujith): Change this.....
 	char *pywal_colors = "/home/sujith/.cache/wal/colors";
 	B8 found_pywal_colors = 0;
 	char pywal_background_color[11];
 	int pywal_background_color_int = 0;
+	
 	if(!access(pywal_colors, F_OK)){
 		FILE *pywal = fopen(pywal_colors,"r");
 		char Buffer[12] = {0};
@@ -201,6 +205,7 @@ int main(int argc, char* argv[]) {
 		pywal_background_color[8]  = 'F';
 		pywal_background_color[9]  = 'F';
 		pywal_background_color[10] = '\0';
+		
 		for(int i = 0; i < 6; i++){
 			char current_char = Buffer[i + 1];
 			pywal_background_color[i + 2] = (current_char >= 'a' && current_char <= 'f') ?
@@ -216,26 +221,25 @@ int main(int argc, char* argv[]) {
 	
 	// TODO(sujith): change this to native dialog
 	// open file
-	char *file_path = 0;
+	String8 file_path = {.str = (U8)0, .size = 0};
 	if(argc == 1){
-		gtk_init(&argc, &argv);
-		file_path = open_file_dialog();
+		DrawFileOpenDialog(GetColor((found_pywal_colors) ? pywal_background_color_int : 0x6F7587FF));
 	}
 	else if(argc == 1) {
-		file_path = argv[0];
+		file_path.str = (U8*)argv[0];
 	}
-	if (file_path == NULL){
+	if (file_path.size == 0){
 		printf("No file provided\n");
 		return 0;
 	}
 	
 	// open file in binary mode
-	FILE *file = fopen(file_path, "rb");
+	FILE *file = fopen((char*)file_path.str, "rb");
 	fseek(file, 0, SEEK_END);
 	U64 file_size = ftell(file);
 	fseek(file, 0, SEEK_SET);
-	if(argc == 1)
-		g_free(file_path);
+	if(argc == 1) ;
+	/*g_free(file_path);*/
 	
 	// TODO(sujith): remove the WaveHeader and have a generic header(?)
 	// init buffer
@@ -419,6 +423,11 @@ int main(int argc, char* argv[]) {
 		// pywal or default color
 		Color wal_color = GetColor((found_pywal_colors) ? pywal_background_color_int : 0x6F7587FF);
 		ClearBackground(wal_color);
+		
+		if(file_path.str != 0){
+			DrawText(TextFormat("Current: %s", file_path), 10, 10, 20, DARKGRAY);
+		}
+		
 		
 		// Draw Album art
 		DrawTexture(texture, GetScreenWidth()/2 - 50, GetScreenHeight()/2 - 50, WHITE);
