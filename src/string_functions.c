@@ -1,3 +1,5 @@
+#define STRING8(s) (String8){.str = (U8*)s, .size = sizeof(s) - 1}
+
 //static void 
 //println(String8 *string){
 //if(string->str == 0) return;

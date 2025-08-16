@@ -12,7 +12,7 @@
 #include "linux.c"
 #include "generic.c"
 
-#define font_size 20
+#define font_size 30
 
 typedef struct{
 	U32 isPaused;
@@ -154,7 +154,7 @@ void getTagDetails(U8* value, String8 *current_byte, char **tag_detail, U8 byte_
 
 void DrawButton(Button *clickable_rec){
 	DrawRectangle(clickable_rec->rec.x, clickable_rec->rec.y, clickable_rec->rec.width, clickable_rec->rec.height, clickable_rec->color);
-	DrawText((char*)clickable_rec->title.str, clickable_rec->rec.x  + font_size,  clickable_rec->rec.y + font_size , font_size * clickable_rec->title.size, BLACK);
+	DrawText((char*)clickable_rec->title.str, clickable_rec->rec.x + clickable_rec->rec.width * 0.1, clickable_rec->rec.y + clickable_rec->rec.height * 0.1, font_size, BLACK);
 	return;
 }
 
@@ -222,11 +222,12 @@ int main(int argc, char* argv[]) {
 	// TODO(sujith): change this to native dialog
 	// open file
 	String8 file_path = {.str = (U8)0, .size = 0};
+	printf("argc : %d\n", argc);
 	if(argc == 1){
 		DrawFileOpenDialog(GetColor((found_pywal_colors) ? pywal_background_color_int : 0x6F7587FF));
 	}
-	else if(argc == 1) {
-		file_path.str = (U8*)argv[0];
+	else if(argc == 2) {
+		file_path = STRING8(argv[0]);
 	}
 	if (file_path.size == 0){
 		printf("No file provided\n");
@@ -234,7 +235,7 @@ int main(int argc, char* argv[]) {
 	}
 	
 	// open file in binary mode
-	FILE *file = fopen((char*)file_path.str, "rb");
+	FILE *file = fopen("/home/sujith/Documents/music-player/assets/file.wav", "rb");
 	fseek(file, 0, SEEK_END);
 	U64 file_size = ftell(file);
 	fseek(file, 0, SEEK_SET);
@@ -396,24 +397,21 @@ int main(int argc, char* argv[]) {
 	
 	// pause unpause state
 	B8 pause_button_clicked = 0;
-	String8 play_pause[2] = {(String8){.str = (U8*)"Play", .size = 4}, (String8){.str = (U8*)"Pause", .size = 5}};
+	String8 play_pause[2] = {STRING8("Play"), STRING8("Pause")};
 	U32 SCREEN_WIDTH = GetScreenWidth();
 	U32 SCREEN_HEIGHT = GetScreenHeight();
 	
-	Rectangle pauseRec = {.x = ( SCREEN_WIDTH/ 2 - 50), 
+	Rectangle pause_rectangle = {.x = ( SCREEN_WIDTH/ 2 - 40), 
 		.y = (3 * SCREEN_HEIGHT / 4 - 20), 
-		.width = 100, 
+		.width = 110, 
 		.height = 40
 	};
 	
 	Button pause_button = {
-		.rec = pauseRec, .color = RED, 
-		.title = {
-			.str = (U8*)"Pause", 
-			.size = 5
-		}, 
+		.rec = pause_rectangle, .color = RED, 
+		.title = play_pause[1], 
 		.onhover = 0, 
-		.onclick = 0
+		.onclick = 0,
 	};
 	
 	pause_button.onclick = (void*)pause_button_on_click;
@@ -427,7 +425,6 @@ int main(int argc, char* argv[]) {
 		if(file_path.str != 0){
 			DrawText(TextFormat("Current: %s", file_path), 10, 10, 20, DARKGRAY);
 		}
-		
 		
 		// Draw Album art
 		DrawTexture(texture, GetScreenWidth()/2 - 50, GetScreenHeight()/2 - 50, WHITE);
