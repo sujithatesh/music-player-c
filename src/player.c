@@ -222,12 +222,12 @@ int main(int argc, char* argv[]) {
 	// TODO(sujith): change this to native dialog
 	// open file
 	String8 file_path = {.str = (U8)0, .size = 0};
-	printf("argc : %d\n", argc);
+	
 	if(argc == 1){
 		DrawFileOpenDialog(GetColor((found_pywal_colors) ? pywal_background_color_int : 0x6F7587FF));
 	}
 	else if(argc == 2) {
-		file_path = STRING8(argv[0]);
+		file_path = STRING8(argv[1]);
 	}
 	if (file_path.size == 0){
 		printf("No file provided\n");
@@ -235,7 +235,7 @@ int main(int argc, char* argv[]) {
 	}
 	
 	// open file in binary mode
-	FILE *file = fopen("/home/sujith/Documents/music-player/assets/file.wav", "rb");
+	FILE *file = fopen((char*)file_path.str, "rb");
 	fseek(file, 0, SEEK_END);
 	U64 file_size = ftell(file);
 	fseek(file, 0, SEEK_SET);
