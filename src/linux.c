@@ -9,11 +9,12 @@ typedef struct timespec mp_time;
 
 typedef struct{
 	String8 name;
+	String8 full_path;
 	B8 is_directory;
 } FileEntry;
 
 U8 
-LINUX_load_directory(Arena *arena, String8 path, FileEntry **entries, U8 *entry_count){
+LINUX_load_directory(Arena *arena, String8 path, FileEntry **entries, U8 *entry_count, B8 get_full_path){
 	DIR *dir = opendir((char*)path.str);
 	if(!dir) return -1;
 	
@@ -36,12 +37,16 @@ LINUX_load_directory(Arena *arena, String8 path, FileEntry **entries, U8 *entry_
 		struct stat st;
 		stat(fullPath, &st);
 		
-		U32 len = getLengthOfLegacyString(fullPath);
+		U32 len = getLengthOfLegacyString(dp->d_name);
 		e->name.str = arena_alloc(arena, len + 1);
-		copy_memory(e->name.str, fullPath, len + 1);
-		e->name.size = getLengthOfLegacyString(fullPath);
-		e->is_directory = S_ISDIR(st.st_mode);
+		copy_memory(e->name.str, dp->d_name, len + 1);
+		e->name.size = getLengthOfLegacyString(dp->d_name);
 		
+		len = getLengthOfLegacyString(fullPath);
+		e->full_path.str = arena_alloc(arena, len + 1);
+		copy_memory(e->full_path.str, fullPath, len + 1);
+		e->full_path.size = getLengthOfLegacyString(fullPath);
+		e->is_directory = S_ISDIR(st.st_mode);
 	}
 	
 	closedir(dir);

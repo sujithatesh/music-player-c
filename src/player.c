@@ -45,7 +45,7 @@ typedef struct{
 B8 button_is_hovering(Button *button){
 	U32 mouse_x = GetMouseX();
 	U32 mouse_y = GetMouseY();
-	if(mouse_x >= button->rec.x && mouse_x <= button->rec.x + button->rec.width && mouse_y >= button->rec.y && mouse_y <= button->rec.y + button->rec.height){
+	if(mouse_x >= button->rec.x && mouse_x < button->rec.x + button->rec.width && mouse_y >= button->rec.y && mouse_y < button->rec.y + button->rec.height){
 		return 1;
 	}
 	return 0;
@@ -152,40 +152,106 @@ void getTagDetails(U8* value, String8 *current_byte, char **tag_detail, U8 byte_
 	}
 }
 
-void DrawButton(Button *clickable_rec){
+void DrawButton(Button *clickable_rec, Color font_color){
 	DrawRectangle(clickable_rec->rec.x, clickable_rec->rec.y, clickable_rec->rec.width, clickable_rec->rec.height, clickable_rec->color);
-	DrawText((char*)clickable_rec->title.str, clickable_rec->rec.x + clickable_rec->rec.width * 0.1, clickable_rec->rec.y + clickable_rec->rec.height * 0.1, font_size, BLACK);
+	DrawText((char*)clickable_rec->title.str, clickable_rec->rec.x + clickable_rec->rec.width * 0.1, clickable_rec->rec.y + clickable_rec->rec.height * 0.1, font_size, font_color);
 	return;
 }
 
-void DrawFileOpenDialog(Color found_pywal_colors){
+void DrawButtonOutline(Button *clickable_rec, Color font_color,Color outline_color, U32 margin){
+	DrawRectangleLines(clickable_rec->rec.x + margin, clickable_rec->rec.y, clickable_rec->rec.width - 2 * margin, clickable_rec->rec.height, outline_color);
+	DrawText((char*)clickable_rec->title.str, clickable_rec->rec.x + clickable_rec->rec.width * 0.1, clickable_rec->rec.y + clickable_rec->rec.height * 0.1, font_size, font_color);
+	return;
+}
+
+String8 PopPath(Arena *arena, String8 path) {
+	if (path.size == 0) {
+		return path; 
+	}
+	
+	S64 i = path.size - 1;
+	while (i >= 0 && path.str[i] != '/' && path.str[i] != '\\') {
+		i--;
+	}
+	
+	if (i < 0) {
+		return (String8){0};
+	}
+	
+	if (i == 0) {
+		return (String8){ .str = (U8*)"/", .size = 1 };
+	}
+	
+	String8 result;
+	result = push_str8_copy(arena, (String8){ .str = path.str, .size = (U32)i });
+	result.size = i;
+	return result;
+}
+
+void DrawFileOpenDialog(Arena *text_arena, String8 *file_path, String8 current_directory, Color found_pywal_colors){
 	SetTraceLogLevel(LOG_NONE);
 	SetConfigFlags(FLAG_VSYNC_HINT);
 	InitWindow(1200, 720, "File Open Dialog");
 	
-	Arena text_arena = arena_commit(1024 * 1024);
-	
-	String8 current_directory = {0};
-	current_directory.str = arena_alloc(&text_arena, 1024);
-	
-	GetCurrentDirectory(&current_directory);
-	
 	FileEntry* entries[1024] = {0};
 	U8 entry_count = 0;
 	
-	LoadDirectory(&text_arena, current_directory, entries, &entry_count);
+	LoadDirectory(text_arena, current_directory, entries, &entry_count, 0);
 	
 	while(!WindowShouldClose()){
 		BeginDrawing();
 		ClearBackground(found_pywal_colors);
+		
 		for(U32 temp = 0; temp < entry_count; temp++){
-			DrawText((char*)entries[temp]->name.str, font_size * 2, temp * font_size, font_size, RED);
+			Button ind = {0};
+			Rectangle file_content = {
+				.x = 0,
+				.y = temp * font_size,
+				.width = 1200,
+				.height = font_size,
+			};
+			ind.title = entries[temp]->name;
+			ind.rec   = file_content;
+			
+			DrawButton(&ind, RED);
+			
+			if(button_is_hovering(&ind)){
+				DrawButtonOutline(&ind, GREEN, RED, font_size);
+				if( IsMouseButtonPressed(0)){
+					if(entries[temp]->is_directory){
+						if(temp == 0){
+							current_directory = PopPath(text_arena, current_directory);
+						} else {
+							current_directory = *appendStrings(text_arena, current_directory,
+																								 STRING8("/"));
+							current_directory = *appendStrings(text_arena, current_directory,
+																								 entries[temp]->name);
+						}
+						
+						entry_count = 0;
+						memset(entries, 0, sizeof(entries));
+						LoadDirectory(text_arena, current_directory, entries, &entry_count, 0);
+					}
+					else {
+						*file_path = entries[temp]->full_path;
+						//DrawText((char*)file_path->str, 0, 650, font_size, RED);
+						goto close_modal;
+					}
+				}
+			}
 		}
-		if(IsKeyPressed(KEY_Q)) break;
+		
+		if(IsKeyPressed(KEY_Q)){
+			close_modal:
+			break;
+		}
+		
 		EndDrawing();
 	}
-	arena_destroy(&text_arena);
+	
+	CloseWindow();
 }
+
 
 int main(int argc, char* argv[]) {
 	// trying to set pywal colors
@@ -223,8 +289,14 @@ int main(int argc, char* argv[]) {
 	// open file
 	String8 file_path = {.str = (U8)0, .size = 0};
 	
+	Arena text_arena = arena_commit(1024 * 1024 * 1024);
+	
 	if(argc == 1){
-		DrawFileOpenDialog(GetColor((found_pywal_colors) ? pywal_background_color_int : 0x6F7587FF));
+		String8 current_directory = {0};
+		current_directory.str = arena_alloc(&text_arena, 1024);
+		
+		GetCurrentDirectory(&current_directory);
+		DrawFileOpenDialog(&text_arena, &file_path, current_directory, GetColor((found_pywal_colors) ? pywal_background_color_int : 0x6F7587FF));
 	}
 	else if(argc == 2) {
 		file_path = STRING8(argv[1]);
@@ -239,8 +311,6 @@ int main(int argc, char* argv[]) {
 	fseek(file, 0, SEEK_END);
 	U64 file_size = ftell(file);
 	fseek(file, 0, SEEK_SET);
-	if(argc == 1) ;
-	/*g_free(file_path);*/
 	
 	// TODO(sujith): remove the WaveHeader and have a generic header(?)
 	// init buffer
@@ -271,7 +341,6 @@ int main(int argc, char* argv[]) {
 	U32 temp = header.fileSize - offset;
 	U8 BUFF[temp];
 	fread(BUFF, 1, temp, file);
-	
 	
 	// reading data via mmap instead of fread
 	unsigned char *mapped_data = (unsigned char *)mmap(NULL, header.dataSize, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
@@ -437,7 +506,7 @@ int main(int argc, char* argv[]) {
 		DrawText(album_name ? album_name : "Unknown album", 20, 110, 20, GREEN);
 		DrawText(artist_name ? artist_name : "Unknown artist", 20, 130, 20, GREEN);
 		
-		DrawButton(&pause_button);
+		DrawButton(&pause_button, BLACK);
 		
 		// get current playback pos
 		current_pos = get_playback_position(&audCon);
@@ -485,5 +554,6 @@ int main(int argc, char* argv[]) {
 	fclose(file);
 	CloseWindow();
 	
+	arena_destroy(&text_arena);
 	return 0;
 }

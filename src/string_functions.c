@@ -1,4 +1,5 @@
 #define STRING8(s) (String8){.str = (U8*)s, .size = sizeof(s) - 1}
+#define STRING8_FROM_CSTR(s) (String8){ .str = (U8*)(s), .size = strlen(s) }
 
 //static void 
 //println(String8 *string){
@@ -19,6 +20,15 @@
 //return 1;
 //}
 
+String8* appendStrings(Arena *arena, String8 s1, String8 s2){
+	String8* appended_string = arena_alloc(arena, s1.size + s2.size);
+	appended_string->str = s1.str;
+	for(U32 i = 0; i <s2.size; i++){
+		appended_string->str[s1.size + i] = s2.str[i];
+	}
+	appended_string->size = s1.size + s2.size;
+	return appended_string;
+}
 
 U32 
 getLengthOfLegacyString(char* str) {

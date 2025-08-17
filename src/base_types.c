@@ -74,3 +74,21 @@ void arena_destroy(Arena* arena){
 	arena_clear(arena);
 	munmap(arena->memory, arena->capacity);
 } 
+
+String8 push_str8_copy(Arena *arena, String8 src) {
+	if (arena->used + src.size + 1 > arena->capacity) {
+		return (String8){0};
+	}
+	
+	char *dst = (char*)arena->memory + arena->used;
+	memcpy(dst, src.str, src.size);
+	dst[src.size] = '\0';
+	
+	arena->used += src.size + 1;
+	
+	return (String8){
+		.str = (U8*)dst,
+		.size = src.size,
+	};
+}
+
