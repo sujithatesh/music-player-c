@@ -14,7 +14,7 @@ typedef struct{
 } FileEntry;
 
 U8 
-LINUX_load_directory(Arena *arena, String8 path, FileEntry **entries, U8 *entry_count, B8 get_full_path){
+LINUX_load_directory(Arena *arena, String8 path, FileEntry **entries, U32 *entry_count, B8 get_full_path){
 	DIR *dir = opendir((char*)path.str);
 	if(!dir) return -1;
 	
@@ -24,7 +24,7 @@ LINUX_load_directory(Arena *arena, String8 path, FileEntry **entries, U8 *entry_
 	// TODO(sujith): WTF IS THIS
 	// NOTE(sujith): WTF IS THIS
 	
-	while ((dp = readdir(dir)) != NULL && *entry_count < MAX_FILES) {
+	while ((dp = readdir(dir)) != NULL && (*entry_count < MAX_FILES)) {
 		if (strcmp(dp->d_name, ".") == 0) continue;
 		
 		FileEntry *e = arena_alloc(arena, sizeof(FileEntry));

@@ -77,7 +77,7 @@ double get_track_duration(AudioContext *ctx) {
 
 // NOTE(sujith): this needs to be abstracted away
 // get current time in seconds
-U32 get_current_time(){
+U32 get_current_time(void){
 	mp_time current_time;
 	clock_gettime(CLOCK_MONOTONIC, &current_time);
 	return current_time.tv_sec + current_time.tv_nsec / 1000000000.0;
@@ -200,7 +200,7 @@ void DrawFileOpenDialog(Arena *text_arena, String8 *file_path, String8 current_d
 	camera.zoom = 1.0f;
 	
 	FileEntry* entries[1024] = {0};
-	U8 entry_count           = 0;
+	U32 entry_count           = 0;
 	B32 reload_dir           = 0;
 	String8 new_directory    = {0};
 	U32 selected_button      = 0;
@@ -321,7 +321,6 @@ void DrawFileOpenDialog(Arena *text_arena, String8 *file_path, String8 current_d
 		EndMode2D();
 		EndDrawing();
 	}
-	
 	CloseWindow();
 }
 
@@ -358,7 +357,7 @@ int main(int argc, char* argv[]) {
 	
 	// TODO(sujith): change this to native dialog
 	// open file
-	String8 file_path = {.str = (U8)0, .size = 0};
+	String8 file_path = {.str = 0, .size = 0};
 	
 	Arena text_arena = arena_commit(10 * 1024 * 1024);
 	
@@ -487,9 +486,11 @@ int main(int argc, char* argv[]) {
 	// Album Name
 	getTagDetails((U8*)"IPRD", &current_byte, &album_name, byte_padding_u32);
 	
+	U32 remainingFrames = 0;
+
 	skip_metadata :
 	// finding out the remaining frames
-	U32 remainingFrames =
+	remainingFrames =
 		header.dataSize / (header.bitsPerSample / 8 * header.noOfChannels);
 	
 	
@@ -534,6 +535,7 @@ int main(int argc, char* argv[]) {
 	
 	Texture2D texture = LoadTextureFromImage(img);
 	UnloadImage(img);
+	
 	
 	// pause unpause state
 	B8 pause_button_clicked = 0;
