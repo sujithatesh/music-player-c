@@ -179,7 +179,7 @@ String8 PopPath(Arena *arena, String8 path) {
 	}
 	
 	if (i == 0) {
-		return (String8){ .str = (U8*)"/", .size = 1 };
+		return push_str8_copy(arena, (String8){ .str = (U8*)"/", .size = 1 });
 	}
 	
 	String8 result;
@@ -194,50 +194,102 @@ void DrawFileOpenDialog(Arena *text_arena, String8 *file_path, String8 current_d
 	InitWindow(1200, 720, "File Open Dialog");
 	
 	FileEntry* entries[1024] = {0};
-	U8 entry_count = 0;
-	
+	U8 entry_count           = 0;
+	B32 reload_dir           = 0;
+	String8 new_directory    = {0};
+	U32 selected_button      = 0;
+	U32 index = 0;
+	B32 going_up = 0;
 	LoadDirectory(text_arena, current_directory, entries, &entry_count, 0);
 	
 	while(!WindowShouldClose()){
 		BeginDrawing();
 		ClearBackground(found_pywal_colors);
 		
+		Button buttons[entry_count];
+		
+		Rectangle file_content;
+		
+		// precaculate
 		for(U32 temp = 0; temp < entry_count; temp++){
-			Button ind = {0};
-			Rectangle file_content = {
-				.x = 0,
-				.y = temp * font_size,
-				.width = 1200,
-				.height = font_size,
-			};
-			ind.title = entries[temp]->name;
-			ind.rec   = file_content;
+			file_content.x      = 0;
+			file_content.y      = temp * font_size;
+			file_content.width  = 1200;
+			file_content.height = font_size;
 			
-			DrawButton(&ind, RED);
-			
-			if(button_is_hovering(&ind)){
-				DrawButtonOutline(&ind, GREEN, RED, font_size);
-				if( IsMouseButtonPressed(0)){
-					if(entries[temp]->is_directory){
-						if(temp == 0){
-							current_directory = PopPath(text_arena, current_directory);
-						} else {
-							current_directory = *appendStrings(text_arena, current_directory,
-																								 STRING8("/"));
-							current_directory = *appendStrings(text_arena, current_directory,
-																								 entries[temp]->name);
-						}
-						
-						entry_count = 0;
-						memset(entries, 0, sizeof(entries));
-						LoadDirectory(text_arena, current_directory, entries, &entry_count, 0);
-					}
-					else {
-						*file_path = entries[temp]->full_path;
-						//DrawText((char*)file_path->str, 0, 650, font_size, RED);
-						goto close_modal;
+			buttons[temp].title = push_str8_copy(text_arena, entries[temp]->name);
+			buttons[temp].rec   = file_content;
+			buttons[temp].color = found_pywal_colors;
+		}
+		
+		F32 wheelDirection = GetMouseWheelMove();
+		Vector2 mouseMoved = GetMouseDelta();
+		F32 mouse_moved = 0;
+		
+		if(mouseMoved.x != 0 || mouseMoved.y != 0)
+			mouse_moved = 1;
+		
+		// Draw loop
+		for(index = 0; index < entry_count; index++){
+			DrawButton(&buttons[index], RED);
+			if(wheelDirection > 0) {
+				if(index <= 0 ) 
+					index = 0;
+				else {
+					if(going_up <= 0){
+						printf("laferrari\n");
+						index--;
 					}
 				}
+				going_up = 1;
+			}
+			else if (wheelDirection < 0) {
+				going_up = -1;
+				if(index >= entry_count) index = entry_count;
+				else {
+					if(going_up >= 0)
+						index++;
+				}
+			}
+			
+			if(button_is_hovering(&buttons[index]) && mouse_moved){
+				selected_button = index;
+			}
+		}
+		
+		DrawButtonOutline(&buttons[selected_button], GREEN, RED, font_size);
+		
+		if(IsMouseButtonPressed(0) || IsKeyPressed(KEY_ENTER)){
+			if(entries[selected_button]->is_directory){
+				if(selected_button == 0){
+					new_directory = PopPath(text_arena, current_directory);
+				} else {
+					new_directory = appendStrings(text_arena, current_directory,
+																				(String8){.str=(U8*)"/", .size = 1});
+					new_directory = appendStrings(text_arena, new_directory,
+																				entries[selected_button]->name);
+				}
+				reload_dir = 1;
+			}
+			else {
+				*file_path = entries[selected_button]->full_path;
+				goto close_modal;
+			}
+		}
+		
+		if(IsKeyPressed(KEY_DOWN)) {
+			if(selected_button >= entry_count - 1) 
+				selected_button = entry_count - 1;
+			else {
+				selected_button += 1;
+			}
+		}
+		
+		if(IsKeyPressed(KEY_UP)) {
+			if(selected_button <= 0) 
+				selected_button = 0;
+			else {
+				selected_button -= 1;
 			}
 		}
 		
@@ -246,12 +298,18 @@ void DrawFileOpenDialog(Arena *text_arena, String8 *file_path, String8 current_d
 			break;
 		}
 		
+		if (reload_dir) {
+			current_directory = new_directory;
+			entry_count = 0;
+			memset(entries, 0, sizeof(entries));
+			LoadDirectory(text_arena, current_directory, entries, &entry_count, 0);
+		}
+		
 		EndDrawing();
 	}
 	
 	CloseWindow();
 }
-
 
 int main(int argc, char* argv[]) {
 	// trying to set pywal colors
@@ -275,8 +333,7 @@ int main(int argc, char* argv[]) {
 		for(int i = 0; i < 6; i++){
 			char current_char = Buffer[i + 1];
 			pywal_background_color[i + 2] = (current_char >= 'a' && current_char <= 'f') ?
-			(current_char - 32) : // Convert to uppercase (e.g., 'a' - 32 = 'A')
-			current_char;  ;
+			(current_char - 32) : current_char;
 		}
 		char *endptr; // Pointer to the character after the number
 		pywal_background_color_int = strtol(pywal_background_color, &endptr, 16);

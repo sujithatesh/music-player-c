@@ -11,6 +11,7 @@ void GetCurrentDirectory(String8 *current_directory){
 }
 
 void LoadDirectory(Arena *arena, String8 current_directory, FileEntry **entries, U8 *entry_count, B8 get_full_path){
+	memset(entries, 0, *entry_count * sizeof(FileEntry));
 	if(LINUX){
 		LINUX_load_directory(arena, current_directory, entries, entry_count, get_full_path);
 	}

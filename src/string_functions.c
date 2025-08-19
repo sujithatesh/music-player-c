@@ -20,21 +20,21 @@
 //return 1;
 //}
 
-String8* appendStrings(Arena *arena, String8 s1, String8 s2){
-	String8* appended_string = arena_alloc(arena, s1.size + s2.size);
+String8 appendStrings(Arena *arena, String8 s1, String8 s2){
+	String8* appended_string = arena_alloc(arena, s1.size + s2.size + 1);
 	appended_string->str = s1.str;
 	for(U32 i = 0; i <s2.size; i++){
 		appended_string->str[s1.size + i] = s2.str[i];
 	}
 	appended_string->size = s1.size + s2.size;
-	return appended_string;
+	appended_string->str[appended_string->size] = '\0';
+	return *appended_string;
 }
 
 U32 
 getLengthOfLegacyString(char* str) {
 	U32 size = 0;
-	for(; str[size]; size++){
-	}
+	for(; str[size]; size++){}
 	return size;
 }
 

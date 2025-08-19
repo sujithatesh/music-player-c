@@ -6,9 +6,9 @@ OS=$(uname)
 if [[ "$OS" == "Linux" ]]; then
     echo "Building for Linux..."
     export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/home/sujith/gitshit/raylib-5.0_linux_amd64/lib
-    gcc ./src/player.c -O3 -Wall -g -o player -lasound\
+    gcc ./player.c -Wall -g -o ../player -lasound\
         -I /home/sujith/gitshit/raylib-5.0_linux_amd64/include\
-        -L./lib\
+        -L../lib\
         -lraylib -lm \
 
 elif [[ "$OS" == "Darwin" ]]; then
