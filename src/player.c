@@ -193,17 +193,24 @@ void DrawFileOpenDialog(Arena *text_arena, String8 *file_path, String8 current_d
 	SetConfigFlags(FLAG_VSYNC_HINT);
 	InitWindow(1200, 720, "File Open Dialog");
 	
+	Camera2D camera = { 0 };
+	camera.offset = (Vector2){ 0, 0};
+	camera.offset = (Vector2){ 0, 0};
+	camera.rotation = 0.0f;
+	camera.zoom = 1.0f;
+	
 	FileEntry* entries[1024] = {0};
 	U8 entry_count           = 0;
 	B32 reload_dir           = 0;
 	String8 new_directory    = {0};
 	U32 selected_button      = 0;
 	U32 index = 0;
-	B32 going_up = 0;
+	
 	LoadDirectory(text_arena, current_directory, entries, &entry_count, 0);
 	
 	while(!WindowShouldClose()){
 		BeginDrawing();
+		BeginMode2D(camera);
 		ClearBackground(found_pywal_colors);
 		
 		Button buttons[entry_count];
@@ -224,7 +231,7 @@ void DrawFileOpenDialog(Arena *text_arena, String8 *file_path, String8 current_d
 		
 		F32 wheelDirection = GetMouseWheelMove();
 		Vector2 mouseMoved = GetMouseDelta();
-		F32 mouse_moved = 0;
+		B32 mouse_moved = 0;
 		
 		if(mouseMoved.x != 0 || mouseMoved.y != 0)
 			mouse_moved = 1;
@@ -232,25 +239,6 @@ void DrawFileOpenDialog(Arena *text_arena, String8 *file_path, String8 current_d
 		// Draw loop
 		for(index = 0; index < entry_count; index++){
 			DrawButton(&buttons[index], RED);
-			if(wheelDirection > 0) {
-				if(index <= 0 ) 
-					index = 0;
-				else {
-					if(going_up <= 0){
-						printf("laferrari\n");
-						index--;
-					}
-				}
-				going_up = 1;
-			}
-			else if (wheelDirection < 0) {
-				going_up = -1;
-				if(index >= entry_count) index = entry_count;
-				else {
-					if(going_up >= 0)
-						index++;
-				}
-			}
 			
 			if(button_is_hovering(&buttons[index]) && mouse_moved){
 				selected_button = index;
@@ -298,6 +286,31 @@ void DrawFileOpenDialog(Arena *text_arena, String8 *file_path, String8 current_d
 			break;
 		}
 		
+		int content_height = entry_count * font_size;
+		int view_height = 720;
+		
+		// Only allow scrolling if content is taller than the screen
+		if (content_height > view_height) {
+			int min_offset = view_height - content_height; // negative value or 0
+			int max_offset = 0;
+			
+			if (wheelDirection > 0) { // scroll up
+        camera.offset.y = (camera.offset.y + font_size > max_offset)
+					? max_offset
+					: camera.offset.y + font_size;
+			}
+			else if (wheelDirection < 0) { // scroll down
+        camera.offset.y = (camera.offset.y - font_size < min_offset)
+					? min_offset
+					: camera.offset.y - font_size;
+			}
+		}
+		else {
+			// Content fits inside screen → lock to top
+			camera.offset.y = 0;
+		}
+		
+		
 		if (reload_dir) {
 			current_directory = new_directory;
 			entry_count = 0;
@@ -305,6 +318,7 @@ void DrawFileOpenDialog(Arena *text_arena, String8 *file_path, String8 current_d
 			LoadDirectory(text_arena, current_directory, entries, &entry_count, 0);
 		}
 		
+		EndMode2D();
 		EndDrawing();
 	}
 	
@@ -346,7 +360,7 @@ int main(int argc, char* argv[]) {
 	// open file
 	String8 file_path = {.str = (U8)0, .size = 0};
 	
-	Arena text_arena = arena_commit(1024 * 1024 * 1024);
+	Arena text_arena = arena_commit(10 * 1024 * 1024);
 	
 	if(argc == 1){
 		String8 current_directory = {0};
