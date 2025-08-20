@@ -325,9 +325,10 @@ void DrawFileOpenDialog(Arena *text_arena, String8 *file_path, String8 current_d
 }
 
 int main(int argc, char* argv[]) {
-	// trying to set pywal colors
-	// TODO(sujith): Change this.....
-	char *pywal_colors = "/home/sujith/.cache/wal/colors";
+	String8 home_dir;
+	Arena text_arena = arena_commit(10 * 1024 * 1024);
+	home_dir = STRING8_FROM_CSTR(getenv("HOME"));
+	char *pywal_colors = (char*)appendStrings(&text_arena, home_dir, STRING8("/.cache/wal/colors")).str;
 	B8 found_pywal_colors = 0;
 	char pywal_background_color[11];
 	int pywal_background_color_int = 0;
@@ -358,8 +359,7 @@ int main(int argc, char* argv[]) {
 	// TODO(sujith): change this to native dialog
 	// open file
 	String8 file_path = {.str = 0, .size = 0};
-	
-	Arena text_arena = arena_commit(10 * 1024 * 1024);
+	String8 file_paths[1024] = {0};
 	
 	if(argc == 1){
 		String8 current_directory = {0};
@@ -369,264 +369,285 @@ int main(int argc, char* argv[]) {
 		DrawFileOpenDialog(&text_arena, &file_path, current_directory, GetColor((found_pywal_colors) ? pywal_background_color_int : 0x6F7587FF));
 	}
 	else if(argc == 2) {
-		file_path = STRING8(argv[1]);
+		file_paths[0] = STRING8(argv[1]);
 	}
+	else {
+		return 0;
+	}
+	
+	for(U32 i = 0; i < argc; i++){
+		file_paths[i] = STRING8(argv[i + 1]);
+	}
+	
 	if (file_path.size == 0){
 		printf("No file provided\n");
 		return 0;
 	}
 	
-	// open file in binary mode
-	FILE *file = fopen((char*)file_path.str, "rb");
-	fseek(file, 0, SEEK_END);
-	U64 file_size = ftell(file);
-	fseek(file, 0, SEEK_SET);
+	U32 file_count = argc;
 	
-	// TODO(sujith): remove the WaveHeader and have a generic header(?)
-	// init buffer
-	U8 Buffer[1000];
-	WaveHeader header;
-	
-	// find out file size and set header filesize
-	header.fileSize = file_size;
-	fread(Buffer, 1, sizeof(Buffer), file);
-	
-	// populate header
-	file_type file_extension = HeaderSetup(&header, Buffer);
-	
-	// file descriptor
-	U32 fd = fileno(file);
-	if(file_extension == WAV_FILE){
-		// set the file to 44 <-- NOTE(sujith): this needs to change
-		fseek(file, 44, SEEK_SET);
-	}
-	else {
-		// TODO(sujith): find a way to add errors
-		return 0;
+	if(argc == 1) {
+		file_paths[0] = file_path;
+		println(&file_path);
 	}
 	
-	U32 offset = header.dataSize;
-	fseek(file, offset, SEEK_SET);
+	printf("file_count : %d\n", file_count);
 	
-	U32 temp = header.fileSize - offset;
-	U8 BUFF[temp];
-	fread(BUFF, 1, temp, file);
-	
-	// reading data via mmap instead of fread
-	unsigned char *mapped_data = (unsigned char *)mmap(NULL, header.dataSize, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
-	
-	// pcm_handle and params init
-	snd_pcm_t *pcm_handle;
-	snd_pcm_hw_params_t *params;
-	
-	// open pcm in non blocking mode
-	S32 rc = snd_pcm_open(&pcm_handle, "default", SND_PCM_STREAM_PLAYBACK,SND_PCM_ASYNC);
-	if (rc < 0) {
-		fprintf(stderr, "unable to open pcm device: %s\n", snd_strerror(rc));
-	}
-	
-	// params init
-	snd_pcm_hw_params_alloca(&params);
-	snd_pcm_hw_params_any(pcm_handle, params);
-	snd_pcm_hw_params_set_access(pcm_handle, params,SND_PCM_ACCESS_RW_INTERLEAVED);
-	
-	// setup if wav type is U8 or S16LE -- basically bits per sample
-	if (header.bitsPerSample == 8) {
-		snd_pcm_hw_params_set_format(pcm_handle, params, SND_PCM_FORMAT_U8);
-	} else if (header.bitsPerSample == 16) {
-		snd_pcm_hw_params_set_format(pcm_handle, params, SND_PCM_FORMAT_S16_LE);
-	} else {
-		fprintf(stderr, "Unsupported bits per sample: %d\n", header.bitsPerSample);
-		snd_pcm_close(pcm_handle);
-	}
-	
-	//- Setting sample frequency and if track's mode
-	snd_pcm_hw_params_set_channels(pcm_handle, params, header.noOfChannels);
-	snd_pcm_hw_params_set_rate(pcm_handle, params, header.sampleFreq, 0);
-	
-	// setting params to pcm_handle
-	rc = snd_pcm_hw_params(pcm_handle, params);
-	if (rc < 0) {
-		fprintf(stderr, "unable to set hw parameters: %s\n", snd_strerror(rc));
-		snd_pcm_close(pcm_handle);
-	}
-	
-	// init audio_data
-	unsigned char *audio_data = 0;
-	if(file_extension == WAV_FILE){
-		// TODO(sujith): need to calculate header offset
+	FILE *file = 0;
+	for(; file_count > 0; file_count++){
+		
+		file = fopen((char*)file_paths[file_count-1].str, "rb");
+		
+		fseek(file, 0, SEEK_END);
+		U64 file_size = ftell(file);
+		fseek(file, 0, SEEK_SET);
+		
+		// TODO(sujith): remove the WaveHeader and have a generic header(?)
+		// init buffer
+		U8 Buffer[1000];
+		WaveHeader header;
+		
+		// find out file size and set header filesize
+		header.fileSize = file_size;
+		fread(Buffer, 1, sizeof(Buffer), file);
+		
+		// populate header
+		file_type file_extension = HeaderSetup(&header, Buffer);
+		
+		// file descriptor
+		U32 fd = fileno(file);
+		if(file_extension == WAV_FILE){
+			// set the file to 44 <-- NOTE(sujith): this needs to change
+			fseek(file, 44, SEEK_SET);
+		}
+		else {
+			// TODO(sujith): find a way to add errors
+			return 0;
+		}
+		
+		U32 offset = header.dataSize;
+		fseek(file, offset, SEEK_SET);
+		
+		U32 temp = header.fileSize - offset;
+		U8 BUFF[temp];
+		fread(BUFF, 1, temp, file);
+		
+		// reading data via mmap instead of fread
+		unsigned char *mapped_data = (unsigned char *)mmap(NULL, header.dataSize, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
+		
+		// pcm_handle and params init
+		snd_pcm_t *pcm_handle;
+		snd_pcm_hw_params_t *params;
+		
+		// open pcm in non blocking mode
+		S32 rc = snd_pcm_open(&pcm_handle, "default", SND_PCM_STREAM_PLAYBACK,SND_PCM_ASYNC);
+		if (rc < 0) {
+			fprintf(stderr, "unable to open pcm device: %s\n", snd_strerror(rc));
+		}
+		
+		// params init
+		snd_pcm_hw_params_alloca(&params);
+		snd_pcm_hw_params_any(pcm_handle, params);
+		snd_pcm_hw_params_set_access(pcm_handle, params,SND_PCM_ACCESS_RW_INTERLEAVED);
+		
+		// setup if wav type is U8 or S16LE -- basically bits per sample
+		if (header.bitsPerSample == 8) {
+			snd_pcm_hw_params_set_format(pcm_handle, params, SND_PCM_FORMAT_U8);
+		} else if (header.bitsPerSample == 16) {
+			snd_pcm_hw_params_set_format(pcm_handle, params, SND_PCM_FORMAT_S16_LE);
+		} else {
+			fprintf(stderr, "Unsupported bits per sample: %d\n", header.bitsPerSample);
+			snd_pcm_close(pcm_handle);
+		}
+		
+		//- Setting sample frequency and if track's mode
+		snd_pcm_hw_params_set_channels(pcm_handle, params, header.noOfChannels);
+		snd_pcm_hw_params_set_rate(pcm_handle, params, header.sampleFreq, 0);
+		
+		// setting params to pcm_handle
+		rc = snd_pcm_hw_params(pcm_handle, params);
+		if (rc < 0) {
+			fprintf(stderr, "unable to set hw parameters: %s\n", snd_strerror(rc));
+			snd_pcm_close(pcm_handle);
+		}
+		
 		// init audio_data
-		audio_data = mapped_data + 44;
-	}
-	
-	// fetching metadata
-	U32 *metadata_start = (U32*)(audio_data + header.dataSize);
-	
-	String8 first_string_byte = {.str = (U8*)metadata_start, .size = 300};
-	B8 compare = compareValueStringSlice((U8*)"LIST", first_string_byte, 0, 4);
-	String8 byte_padding = {.str = (U8*)metadata_start + 4, .size = 1};
-	U32 byte_padding_u32 = atoi((char*)byte_padding.str);
-	
-	B8 second_compare = 0;
-	String8 second_string_byte = {0};
-	char* artist_name = 0;
-	char* album_name = 0;
-	
-	if(compare){
-		second_string_byte.str = (first_string_byte.str + byte_padding_u32);
-		second_string_byte.size = 8;
-		second_compare = compareValueStringSlice((U8*)"INFO", second_string_byte, 0, 4);
-		if(!second_compare) goto skip_metadata;
-	}
-	else goto skip_metadata;
-	
-	String8 current_byte = {.str = second_string_byte.str + 4, .size = byte_padding_u32};
-	// Artist Name
-	getTagDetails((U8*)"IART", &current_byte, &artist_name, byte_padding_u32);
-	// Album Name
-	getTagDetails((U8*)"IPRD", &current_byte, &album_name, byte_padding_u32);
-	
-	U32 remainingFrames = 0;
-
-	skip_metadata :
-	// finding out the remaining frames
-	remainingFrames =
-		header.dataSize / (header.bitsPerSample / 8 * header.noOfChannels);
-	
-	
-	// Setup AudioContext
-	AudioContext audCon = {0};
-	audCon.isPaused = 0;
-	audCon.isPlaying = 1;
-	audCon.should_stop = 0;
-	audCon.pcm_handle = pcm_handle;
-	audCon.audio_data = audio_data;
-	audCon.remainingFrames = remainingFrames;
-	audCon.framesWritten = 0;
-	audCon.totalFrames = header.dataSize / (header.bitsPerSample / 8 * header.noOfChannels);
-	audCon.header = &header;
-	
-	audCon.chunk_size = header.sampleFreq / 100; // 10ms chunks
-	if (audCon.chunk_size < 64) audCon.chunk_size = 64;   // Minimum chunk size
-	if (audCon.chunk_size > 1024) audCon.chunk_size = 1024; // Maximum chunk size
-	
-	// calling audio
-	pthread_mutex_init(&audCon.mutex, NULL);
-	pthread_t audio_thread_id;
-	pthread_create(&audio_thread_id, NULL, audio_thread, &audCon);
-	
-	// getting total track duration in seconds
-	F32 track_duration = get_track_duration(&audCon);
-	formatted_time total_duration  = {0}; 
-	get_formatted_time_from_sec(&total_duration, track_duration);
-	// setting current_pos of file to 0
-	F32 current_pos = 0;
-	
-	// no stdout from raylib
-	SetTraceLogLevel(LOG_NONE);
-	SetConfigFlags(FLAG_VSYNC_HINT);
-	
-	// --------------------------DRAW CYCLE------------------------------
-	InitWindow(1200, 720, "Music Player");
-	
-	// Load Album art // TODO(sujith): retreive this dynamically and add a fallback image
-	Image img = LoadImage("/home/sujith/Music/To Pimp A Butterfly/cover.jpg");
-	ImageResize(&img, GetScreenWidth() * 0.1, GetScreenWidth() * 0.1 );
-	
-	Texture2D texture = LoadTextureFromImage(img);
-	UnloadImage(img);
-	
-	
-	// pause unpause state
-	B8 pause_button_clicked = 0;
-	String8 play_pause[2] = {STRING8("Play"), STRING8("Pause")};
-	U32 SCREEN_WIDTH = GetScreenWidth();
-	U32 SCREEN_HEIGHT = GetScreenHeight();
-	
-	Rectangle pause_rectangle = {.x = ( SCREEN_WIDTH/ 2 - 40), 
-		.y = (3 * SCREEN_HEIGHT / 4 - 20), 
-		.width = 110, 
-		.height = 40
-	};
-	
-	Button pause_button = {
-		.rec = pause_rectangle, .color = RED, 
-		.title = play_pause[1], 
-		.onhover = 0, 
-		.onclick = 0,
-	};
-	
-	pause_button.onclick = (void*)pause_button_on_click;
-	
-	while (!WindowShouldClose()) {
-		BeginDrawing();
-		// pywal or default color
-		Color wal_color = GetColor((found_pywal_colors) ? pywal_background_color_int : 0x6F7587FF);
-		ClearBackground(wal_color);
-		
-		if(file_path.str != 0){
-			DrawText(TextFormat("Current: %s", file_path), 10, 10, 20, DARKGRAY);
+		unsigned char *audio_data = 0;
+		if(file_extension == WAV_FILE){
+			// TODO(sujith): need to calculate header offset
+			// init audio_data
+			audio_data = mapped_data + 44;
 		}
 		
-		// Draw Album art
-		DrawTexture(texture, GetScreenWidth()/2 - 50, GetScreenHeight()/2 - 50, WHITE);
+		// fetching metadata
+		U32 *metadata_start = (U32*)(audio_data + header.dataSize);
 		
-		//draw playback position
-		current_pos = get_playback_position(&audCon);
-		formatted_time current_duration = {0};
-		get_formatted_time_from_sec(&current_duration, current_pos);
-		DrawText(TextFormat("%02d:%02d / %02d:%02d", current_duration.min, current_duration.sec, total_duration.min, total_duration.sec), 20, 50, 20, RED);
-		DrawText(album_name ? album_name : "Unknown album", 20, 110, 20, GREEN);
-		DrawText(artist_name ? artist_name : "Unknown artist", 20, 130, 20, GREEN);
+		String8 first_string_byte = {.str = (U8*)metadata_start, .size = 300};
+		B8 compare = compareValueStringSlice((U8*)"LIST", first_string_byte, 0, 4);
+		String8 byte_padding = {.str = (U8*)metadata_start + 4, .size = 1};
+		U32 byte_padding_u32 = atoi((char*)byte_padding.str);
 		
-		DrawButton(&pause_button, BLACK);
+		B8 second_compare = 0;
+		String8 second_string_byte = {0};
+		char* artist_name = 0;
+		char* album_name = 0;
 		
-		// get current playback pos
-		current_pos = get_playback_position(&audCon);
+		if(compare){
+			second_string_byte.str = (first_string_byte.str + byte_padding_u32);
+			second_string_byte.size = 8;
+			second_compare = compareValueStringSlice((U8*)"INFO", second_string_byte, 0, 4);
+			if(!second_compare) goto skip_metadata;
+		}
+		else goto skip_metadata;
 		
-		B8 space_pressed = IsKeyPressed(KEY_SPACE);
-		if(IsMouseButtonPressed(0) || space_pressed){
-			if(button_is_hovering(&pause_button) || space_pressed){
-				((void (*)(Button*, B8*, String8*))pause_button.onclick)(&pause_button, &pause_button_clicked, play_pause);
+		String8 current_byte = {.str = second_string_byte.str + 4, .size = byte_padding_u32};
+		// Artist Name
+		getTagDetails((U8*)"IART", &current_byte, &artist_name, byte_padding_u32);
+		// Album Name
+		getTagDetails((U8*)"IPRD", &current_byte, &album_name, byte_padding_u32);
+		
+		U32 remainingFrames = 0;
+		
+		skip_metadata :
+		// finding out the remaining frames
+		remainingFrames =
+			header.dataSize / (header.bitsPerSample / 8 * header.noOfChannels);
+		
+		
+		// Setup AudioContext
+		AudioContext audCon = {0};
+		audCon.isPaused = 0;
+		audCon.isPlaying = 1;
+		audCon.should_stop = 0;
+		audCon.pcm_handle = pcm_handle;
+		audCon.audio_data = audio_data;
+		audCon.remainingFrames = remainingFrames;
+		audCon.framesWritten = 0;
+		audCon.totalFrames = header.dataSize / (header.bitsPerSample / 8 * header.noOfChannels);
+		audCon.header = &header;
+		
+		audCon.chunk_size = header.sampleFreq / 100; // 10ms chunks
+		if (audCon.chunk_size < 64) audCon.chunk_size = 64;   // Minimum chunk size
+		if (audCon.chunk_size > 1024) audCon.chunk_size = 1024; // Maximum chunk size
+		
+		// calling audio
+		pthread_mutex_init(&audCon.mutex, NULL);
+		pthread_t audio_thread_id;
+		pthread_create(&audio_thread_id, NULL, audio_thread, &audCon);
+		
+		// getting total track duration in seconds
+		F32 track_duration = get_track_duration(&audCon);
+		formatted_time total_duration  = {0}; 
+		get_formatted_time_from_sec(&total_duration, track_duration);
+		// setting current_pos of file to 0
+		F32 current_pos = 0;
+		
+		// no stdout from raylib
+		SetTraceLogLevel(LOG_NONE);
+		SetConfigFlags(FLAG_VSYNC_HINT);
+		
+		// --------------------------DRAW CYCLE------------------------------
+		InitWindow(1200, 720, "Music Player");
+		
+		// Load Album art // TODO(sujith): retreive this dynamically and add a fallback image
+		Image img = LoadImage("/home/sujith/Music/To Pimp A Butterfly/cover.jpg");
+		ImageResize(&img, GetScreenWidth() * 0.1, GetScreenWidth() * 0.1 );
+		
+		Texture2D texture = LoadTextureFromImage(img);
+		UnloadImage(img);
+		
+		
+		// pause unpause state
+		B8 pause_button_clicked = 0;
+		String8 play_pause[2] = {STRING8("Play"), STRING8("Pause")};
+		U32 SCREEN_WIDTH = GetScreenWidth();
+		U32 SCREEN_HEIGHT = GetScreenHeight();
+		
+		Rectangle pause_rectangle = {.x = ( SCREEN_WIDTH/ 2 - 40), 
+			.y = (3 * SCREEN_HEIGHT / 4 - 20), 
+			.width = 110, 
+			.height = 40
+		};
+		
+		Button pause_button = {
+			.rec = pause_rectangle, .color = RED, 
+			.title = play_pause[1], 
+			.onhover = 0, 
+			.onclick = 0,
+		};
+		
+		pause_button.onclick = (void*)pause_button_on_click;
+		
+		while (!WindowShouldClose()) {
+			BeginDrawing();
+			// pywal or default color
+			Color wal_color = GetColor((found_pywal_colors) ? pywal_background_color_int : 0x6F7587FF);
+			ClearBackground(wal_color);
+			
+			if(file_path.str != 0){
+				DrawText(TextFormat("Current: %s", file_path), 10, 10, 20, DARKGRAY);
 			}
+			
+			// Draw Album art
+			DrawTexture(texture, GetScreenWidth()/2 - 50, GetScreenHeight()/2 - 50, WHITE);
+			
+			//draw playback position
+			current_pos = get_playback_position(&audCon);
+			formatted_time current_duration = {0};
+			get_formatted_time_from_sec(&current_duration, current_pos);
+			DrawText(TextFormat("%02d:%02d / %02d:%02d", current_duration.min, current_duration.sec, total_duration.min, total_duration.sec), 20, 50, 20, RED);
+			DrawText(album_name ? album_name : "Unknown album", 20, 110, 20, GREEN);
+			DrawText(artist_name ? artist_name : "Unknown artist", 20, 130, 20, GREEN);
+			
+			DrawButton(&pause_button, BLACK);
+			
+			// get current playback pos
+			current_pos = get_playback_position(&audCon);
+			
+			B8 space_pressed = IsKeyPressed(KEY_SPACE);
+			if(IsMouseButtonPressed(0) || space_pressed){
+				if(button_is_hovering(&pause_button) || space_pressed){
+					((void (*)(Button*, B8*, String8*))pause_button.onclick)(&pause_button, &pause_button_clicked, play_pause);
+				}
+			}
+			
+			// pause the playback
+			if (pause_button_clicked == 1) {
+				pthread_mutex_lock(&audCon.mutex);
+				if (audCon.isPaused == 0) {
+					snd_pcm_pause(pcm_handle, 1);
+					audCon.isPaused = 1;
+				}  
+				pthread_mutex_unlock(&audCon.mutex);
+			}
+			
+			// resume the playback
+			if (pause_button_clicked == 0) {
+				pthread_mutex_lock(&audCon.mutex);
+				snd_pcm_pause(pcm_handle, 0);
+				audCon.isPaused = 0;
+				pthread_mutex_unlock(&audCon.mutex);
+			}
+			
+			// quit
+			if (IsKeyPressed(KEY_Q)) {
+				break;
+			} 
+			
+			EndDrawing();
 		}
 		
-		// pause the playback
-		if (pause_button_clicked == 1) {
-			pthread_mutex_lock(&audCon.mutex);
-			if (audCon.isPaused == 0) {
-				snd_pcm_pause(pcm_handle, 1);
-				audCon.isPaused = 1;
-			}  
-			pthread_mutex_unlock(&audCon.mutex);
-		}
+		// Cleanup
+		audCon.should_stop = 1;
+		pthread_join(audio_thread_id, NULL);
+		pthread_mutex_destroy(&audCon.mutex);
+		snd_pcm_drop(pcm_handle);
+		snd_pcm_close(pcm_handle);
+		munmap(mapped_data, header.dataSize);
+		fclose(file);
+		CloseWindow();
 		
-		// resume the playback
-		if (pause_button_clicked == 0) {
-			pthread_mutex_lock(&audCon.mutex);
-			snd_pcm_pause(pcm_handle, 0);
-			audCon.isPaused = 0;
-			pthread_mutex_unlock(&audCon.mutex);
-		}
-		
-		// quit
-		if (IsKeyPressed(KEY_Q)) {
-			break;
-		} 
-		
-		EndDrawing();
+		arena_destroy(&text_arena);
 	}
-	
-	// Cleanup
-	audCon.should_stop = 1;
-	pthread_join(audio_thread_id, NULL);
-	pthread_mutex_destroy(&audCon.mutex);
-	snd_pcm_drop(pcm_handle);
-	snd_pcm_close(pcm_handle);
-	munmap(mapped_data, header.dataSize);
-	fclose(file);
-	CloseWindow();
-	
-	arena_destroy(&text_arena);
 	return 0;
 }

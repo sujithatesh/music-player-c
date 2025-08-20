@@ -1,2 +1,3 @@
+[x] Click file to select it
 Working on : 
-[] Click file to select it
+[] Playlist?
