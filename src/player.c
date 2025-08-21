@@ -77,7 +77,7 @@ double get_track_duration(AudioContext *ctx) {
 
 // NOTE(sujith): this needs to be abstracted away
 // get current time in seconds
-U32 get_current_time(void){
+double get_current_time(void){
 	mp_time current_time;
 	clock_gettime(CLOCK_MONOTONIC, &current_time);
 	return current_time.tv_sec + current_time.tv_nsec / 1000000000.0;
@@ -188,7 +188,7 @@ String8 PopPath(Arena *arena, String8 path) {
 	return result;
 }
 
-void DrawFileOpenDialog(Arena *text_arena, String8 *file_path, String8 current_directory, Color found_pywal_colors){
+void DrawFileOpenDialog(String8* file_paths, Arena *text_arena, String8 *file_path, String8 current_directory, Color found_pywal_colors){
 	SetTraceLogLevel(LOG_NONE);
 	SetConfigFlags(FLAG_VSYNC_HINT);
 	InitWindow(1200, 720, "File Open Dialog");
@@ -200,7 +200,7 @@ void DrawFileOpenDialog(Arena *text_arena, String8 *file_path, String8 current_d
 	camera.zoom = 1.0f;
 	
 	FileEntry* entries[1024] = {0};
-	U32 entry_count           = 0;
+	U32 entry_count          = 0;
 	B32 reload_dir           = 0;
 	String8 new_directory    = {0};
 	U32 selected_button      = 0;
@@ -310,7 +310,6 @@ void DrawFileOpenDialog(Arena *text_arena, String8 *file_path, String8 current_d
 			camera.offset.y = 0;
 		}
 		
-		
 		if (reload_dir) {
 			current_directory = new_directory;
 			entry_count = 0;
@@ -327,7 +326,7 @@ void DrawFileOpenDialog(Arena *text_arena, String8 *file_path, String8 current_d
 int main(int argc, char* argv[]) {
 	String8 home_dir;
 	Arena text_arena = arena_commit(10 * 1024 * 1024);
-	home_dir = STRING8_FROM_CSTR(getenv("HOME"));
+	home_dir = STRING8(getenv("HOME"));
 	char *pywal_colors = (char*)appendStrings(&text_arena, home_dir, STRING8("/.cache/wal/colors")).str;
 	B8 found_pywal_colors = 0;
 	char pywal_background_color[11];
@@ -366,36 +365,31 @@ int main(int argc, char* argv[]) {
 		current_directory.str = arena_alloc(&text_arena, 1024);
 		
 		GetCurrentDirectory(&current_directory);
-		DrawFileOpenDialog(&text_arena, &file_path, current_directory, GetColor((found_pywal_colors) ? pywal_background_color_int : 0x6F7587FF));
+		DrawFileOpenDialog(file_paths, &text_arena, &file_path, current_directory, GetColor((found_pywal_colors) ? pywal_background_color_int : 0x6F7587FF));
 	}
 	else if(argc == 2) {
 		file_paths[0] = STRING8(argv[1]);
 	}
 	else {
-		return 0;
+		for(U32 i = 0; i < argc; i++){
+		}
 	}
 	
-	for(U32 i = 0; i < argc; i++){
-		file_paths[i] = STRING8(argv[i + 1]);
+	for(U32 i = 1; i < argc; i++){
+		file_paths[i - 1] = STRING8(argv[i]);
+		println(&file_paths[i]);
+		printf("%d %d\n", i-1, i);
 	}
 	
-	if (file_path.size == 0){
-		printf("No file provided\n");
-		return 0;
-	}
+	U32 file_count = argc - 1;
 	
-	U32 file_count = argc;
 	
-	if(argc == 1) {
+	/*if(argc == 1) {
 		file_paths[0] = file_path;
-		println(&file_path);
-	}
-	
-	printf("file_count : %d\n", file_count);
+	}*/
 	
 	FILE *file = 0;
-	for(; file_count > 0; file_count++){
-		
+	for(; file_count > 0; file_count--){
 		file = fopen((char*)file_paths[file_count-1].str, "rb");
 		
 		fseek(file, 0, SEEK_END);
@@ -542,6 +536,7 @@ int main(int argc, char* argv[]) {
 		// setting current_pos of file to 0
 		F32 current_pos = 0;
 		
+		
 		// no stdout from raylib
 		SetTraceLogLevel(LOG_NONE);
 		SetConfigFlags(FLAG_VSYNC_HINT);
@@ -601,9 +596,19 @@ int main(int argc, char* argv[]) {
 			
 			DrawButton(&pause_button, BLACK);
 			
+			U32 elapsed = get_playback_position(&audCon);
+			U32 total   = audCon.totalFrames / audCon.header->sampleFreq;
+			
+			if (elapsed >= total) {
+				snd_pcm_drain(pcm_handle);
+				break;
+			}
+			
+			
+			/*
 			// get current playback pos
 			current_pos = get_playback_position(&audCon);
-			
+			*/
 			B8 space_pressed = IsKeyPressed(KEY_SPACE);
 			if(IsMouseButtonPressed(0) || space_pressed){
 				if(button_is_hovering(&pause_button) || space_pressed){
@@ -646,8 +651,7 @@ int main(int argc, char* argv[]) {
 		munmap(mapped_data, header.dataSize);
 		fclose(file);
 		CloseWindow();
-		
-		arena_destroy(&text_arena);
 	}
+	arena_destroy(&text_arena);
 	return 0;
 }

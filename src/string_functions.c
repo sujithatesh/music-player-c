@@ -1,5 +1,4 @@
-#define STRING8(s) (String8){.str = (U8*)s, .size = sizeof(s) - 1}
-#define STRING8_FROM_CSTR(s) (String8){ .str = (U8*)(s), .size = strlen(s) }
+#define STRING8(s) (String8){.str = (U8*)s, .size = strlen(s)}
 
 static void 
 println(String8 *string){
