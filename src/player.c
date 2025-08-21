@@ -188,7 +188,7 @@ String8 PopPath(Arena *arena, String8 path) {
 	return result;
 }
 
-void DrawFileOpenDialog(String8* file_paths, Arena *text_arena, String8 *file_path, String8 current_directory, Color found_pywal_colors){
+void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena, String8 *file_path, String8 current_directory, Color found_pywal_colors){
 	SetTraceLogLevel(LOG_NONE);
 	SetConfigFlags(FLAG_VSYNC_HINT);
 	InitWindow(1200, 720, "File Open Dialog");
@@ -199,12 +199,15 @@ void DrawFileOpenDialog(String8* file_paths, Arena *text_arena, String8 *file_pa
 	camera.rotation = 0.0f;
 	camera.zoom = 1.0f;
 	
-	FileEntry* entries[1024] = {0};
-	U32 entry_count          = 0;
-	B32 reload_dir           = 0;
-	String8 new_directory    = {0};
-	U32 selected_button      = 0;
-	U32 index = 0;
+	FileEntry* entries[1024]   = {0};
+	U32 entry_count            = 0;
+	B32 reload_dir             = 0;
+	String8 new_directory      = {0};
+	U32 hovering_button        = 0;
+	U32 index                  = 0;
+	U32 selected_buttons[1024] = {0};
+	U32 selected_button_count  = 0;
+	B32 multiple_selected      = 0;
 	
 	LoadDirectory(text_arena, current_directory, entries, &entry_count, 0);
 	
@@ -241,43 +244,56 @@ void DrawFileOpenDialog(String8* file_paths, Arena *text_arena, String8 *file_pa
 			DrawButton(&buttons[index], RED);
 			
 			if(button_is_hovering(&buttons[index]) && mouse_moved){
-				selected_button = index;
+				hovering_button = index;
 			}
 		}
 		
-		DrawButtonOutline(&buttons[selected_button], GREEN, RED, font_size);
+		DrawButtonOutline(&buttons[hovering_button], GREEN, RED, font_size);
+		
+		for(U32 i = 0; i < selected_button_count; i++)
+			DrawButtonOutline(&buttons[selected_buttons[i]], RED, WHITE, font_size);
+		
+		
+		if((IsKeyPressed(KEY_M))) {
+			file_paths[selected_button_count] = entries[hovering_button]->full_path; 
+			selected_buttons[selected_button_count] = hovering_button; // not index
+			*file_count = ++selected_button_count;
+			multiple_selected = 1;
+		}
+		
 		
 		if(IsMouseButtonPressed(0) || IsKeyPressed(KEY_ENTER)){
-			if(entries[selected_button]->is_directory){
-				if(selected_button == 0){
+			if(entries[hovering_button]->is_directory){
+				if(hovering_button == 0){
 					new_directory = PopPath(text_arena, current_directory);
 				} else {
 					new_directory = appendStrings(text_arena, current_directory,
 																				(String8){.str=(U8*)"/", .size = 1});
 					new_directory = appendStrings(text_arena, new_directory,
-																				entries[selected_button]->name);
+																				entries[hovering_button]->name);
 				}
 				reload_dir = 1;
 			}
 			else {
-				*file_path = entries[selected_button]->full_path;
+				if(multiple_selected != 1)
+					*file_path = entries[hovering_button]->full_path;
 				goto close_modal;
 			}
 		}
 		
 		if(IsKeyPressed(KEY_DOWN)) {
-			if(selected_button >= entry_count - 1) 
-				selected_button = entry_count - 1;
+			if(hovering_button >= entry_count - 1) 
+				hovering_button = entry_count - 1;
 			else {
-				selected_button += 1;
+				hovering_button += 1;
 			}
 		}
 		
 		if(IsKeyPressed(KEY_UP)) {
-			if(selected_button <= 0) 
-				selected_button = 0;
+			if(hovering_button <= 0) 
+				hovering_button = 0;
 			else {
-				selected_button -= 1;
+				hovering_button -= 1;
 			}
 		}
 		
@@ -295,12 +311,12 @@ void DrawFileOpenDialog(String8* file_paths, Arena *text_arena, String8 *file_pa
 			int max_offset = 0;
 			
 			if (wheelDirection > 0) { // scroll up
-        camera.offset.y = (camera.offset.y + font_size > max_offset)
+				camera.offset.y = (camera.offset.y + font_size > max_offset)
 					? max_offset
 					: camera.offset.y + font_size;
 			}
 			else if (wheelDirection < 0) { // scroll down
-        camera.offset.y = (camera.offset.y - font_size < min_offset)
+				camera.offset.y = (camera.offset.y - font_size < min_offset)
 					? min_offset
 					: camera.offset.y - font_size;
 			}
@@ -359,13 +375,14 @@ int main(int argc, char* argv[]) {
 	// open file
 	String8 file_path = {.str = 0, .size = 0};
 	String8 file_paths[1024] = {0};
+	U32 file_count = 0;
 	
 	if(argc == 1){
 		String8 current_directory = {0};
 		current_directory.str = arena_alloc(&text_arena, 1024);
 		
 		GetCurrentDirectory(&current_directory);
-		DrawFileOpenDialog(file_paths, &text_arena, &file_path, current_directory, GetColor((found_pywal_colors) ? pywal_background_color_int : 0x6F7587FF));
+		DrawFileOpenDialog(file_paths, &file_count, &text_arena, &file_path, current_directory, GetColor((found_pywal_colors) ? pywal_background_color_int : 0x6F7587FF));
 	}
 	else if(argc == 2) {
 		file_paths[0] = STRING8(argv[1]);
@@ -379,9 +396,8 @@ int main(int argc, char* argv[]) {
 		file_paths[i - 1] = STRING8(argv[i]);
 		println(&file_paths[i]);
 		printf("%d %d\n", i-1, i);
+		file_count = argc - 1;
 	}
-	
-	U32 file_count = argc - 1;
 	
 	
 	/*if(argc == 1) {
