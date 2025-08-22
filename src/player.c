@@ -254,7 +254,7 @@ void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena
 			DrawButtonOutline(&buttons[selected_buttons[i]], RED, WHITE, font_size);
 		
 		
-		if((IsKeyPressed(KEY_M))) {
+		if((IsKeyPressed(KEY_M)) || IsMouseButtonPressed(1)) {
 			file_paths[selected_button_count] = entries[hovering_button]->full_path; 
 			selected_buttons[selected_button_count] = hovering_button; // not index
 			*file_count = ++selected_button_count;
@@ -405,8 +405,9 @@ int main(int argc, char* argv[]) {
 	}*/
 	
 	FILE *file = 0;
-	for(; file_count > 0; file_count--){
-		file = fopen((char*)file_paths[file_count-1].str, "rb");
+	for(U32 currently_playing = 0; currently_playing < file_count; currently_playing++){
+		
+		file = fopen((char*)file_paths[currently_playing].str, "rb");
 		
 		fseek(file, 0, SEEK_END);
 		U64 file_size = ftell(file);
@@ -552,7 +553,6 @@ int main(int argc, char* argv[]) {
 		// setting current_pos of file to 0
 		F32 current_pos = 0;
 		
-		
 		// no stdout from raylib
 		SetTraceLogLevel(LOG_NONE);
 		SetConfigFlags(FLAG_VSYNC_HINT);
@@ -610,6 +610,11 @@ int main(int argc, char* argv[]) {
 			DrawText(album_name ? album_name : "Unknown album", 20, 110, 20, GREEN);
 			DrawText(artist_name ? artist_name : "Unknown artist", 20, 130, 20, GREEN);
 			
+			// playlist
+			for(U32 i = currently_playing; i < file_count; i++) {
+				DrawText((char*)file_paths[i].str, 1200 - 20 * font_size, font_size * (i - currently_playing), font_size / 4 * 3, GREEN);
+			}
+			
 			DrawButton(&pause_button, BLACK);
 			
 			U32 elapsed = get_playback_position(&audCon);
@@ -619,7 +624,6 @@ int main(int argc, char* argv[]) {
 				snd_pcm_drain(pcm_handle);
 				break;
 			}
-			
 			
 			/*
 			// get current playback pos
