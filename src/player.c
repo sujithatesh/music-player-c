@@ -275,8 +275,10 @@ void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena
 				reload_dir = 1;
 			}
 			else {
-				if(multiple_selected != 1)
-					*file_path = entries[hovering_button]->full_path;
+				if(multiple_selected != 1) {
+					file_paths[selected_button_count] = entries[hovering_button]->full_path;
+					*file_count = ++selected_button_count;
+				}
 				goto close_modal;
 			}
 		}
@@ -348,6 +350,7 @@ int main(int argc, char* argv[]) {
 	char pywal_background_color[11];
 	int pywal_background_color_int = 0;
 	
+	// TODO(sujith): find some other way for this
 	if(!access(pywal_colors, F_OK)){
 		FILE *pywal = fopen(pywal_colors,"r");
 		char Buffer[12] = {0};
@@ -394,15 +397,8 @@ int main(int argc, char* argv[]) {
 	
 	for(U32 i = 1; i < argc; i++){
 		file_paths[i - 1] = STRING8(argv[i]);
-		println(&file_paths[i]);
-		printf("%d %d\n", i-1, i);
 		file_count = argc - 1;
 	}
-	
-	
-	/*if(argc == 1) {
-		file_paths[0] = file_path;
-	}*/
 	
 	FILE *file = 0;
 	for(U32 currently_playing = 0; currently_playing < file_count; currently_playing++){
