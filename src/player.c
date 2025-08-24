@@ -188,7 +188,7 @@ String8 PopPath(Arena *arena, String8 path) {
 	return result;
 }
 
-void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena, String8 *file_path, String8 current_directory, Color found_pywal_colors){
+void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena, String8 current_directory, Color found_pywal_colors){
 	SetTraceLogLevel(LOG_NONE);
 	SetConfigFlags(FLAG_VSYNC_HINT);
 	InitWindow(1200, 720, "File Open Dialog");
@@ -374,7 +374,6 @@ int main(int argc, char* argv[]) {
 	else{
 	}
 	
-	// TODO(sujith): change this to native dialog
 	// open file
 	String8 file_path = {.str = 0, .size = 0};
 	String8 file_paths[1024] = {0};
@@ -385,14 +384,12 @@ int main(int argc, char* argv[]) {
 		current_directory.str = arena_alloc(&text_arena, 1024);
 		
 		GetCurrentDirectory(&current_directory);
-		DrawFileOpenDialog(file_paths, &file_count, &text_arena, &file_path, current_directory, GetColor((found_pywal_colors) ? pywal_background_color_int : 0x6F7587FF));
+		DrawFileOpenDialog(file_paths, &file_count, &text_arena, current_directory, GetColor((found_pywal_colors) ? pywal_background_color_int : 0x6F7587FF));
 	}
 	else if(argc == 2) {
 		file_paths[0] = STRING8(argv[1]);
 	}
 	else {
-		for(U32 i = 0; i < argc; i++){
-		}
 	}
 	
 	for(U32 i = 1; i < argc; i++){
@@ -438,45 +435,11 @@ int main(int argc, char* argv[]) {
 		U32 temp = header.fileSize - offset;
 		U8 BUFF[temp];
 		fread(BUFF, 1, temp, file);
-		
 		// reading data via mmap instead of fread
 		unsigned char *mapped_data = (unsigned char *)mmap(NULL, header.dataSize, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
 		
 		// pcm_handle and params init
-		snd_pcm_t *pcm_handle;
-		snd_pcm_hw_params_t *params;
-		
-		// open pcm in non blocking mode
-		S32 rc = snd_pcm_open(&pcm_handle, "default", SND_PCM_STREAM_PLAYBACK,SND_PCM_ASYNC);
-		if (rc < 0) {
-			fprintf(stderr, "unable to open pcm device: %s\n", snd_strerror(rc));
-		}
-		
-		// params init
-		snd_pcm_hw_params_alloca(&params);
-		snd_pcm_hw_params_any(pcm_handle, params);
-		snd_pcm_hw_params_set_access(pcm_handle, params,SND_PCM_ACCESS_RW_INTERLEAVED);
-		
-		// setup if wav type is U8 or S16LE -- basically bits per sample
-		if (header.bitsPerSample == 8) {
-			snd_pcm_hw_params_set_format(pcm_handle, params, SND_PCM_FORMAT_U8);
-		} else if (header.bitsPerSample == 16) {
-			snd_pcm_hw_params_set_format(pcm_handle, params, SND_PCM_FORMAT_S16_LE);
-		} else {
-			fprintf(stderr, "Unsupported bits per sample: %d\n", header.bitsPerSample);
-			snd_pcm_close(pcm_handle);
-		}
-		
-		//- Setting sample frequency and if track's mode
-		snd_pcm_hw_params_set_channels(pcm_handle, params, header.noOfChannels);
-		snd_pcm_hw_params_set_rate(pcm_handle, params, header.sampleFreq, 0);
-		
-		// setting params to pcm_handle
-		rc = snd_pcm_hw_params(pcm_handle, params);
-		if (rc < 0) {
-			fprintf(stderr, "unable to set hw parameters: %s\n", snd_strerror(rc));
-			snd_pcm_close(pcm_handle);
-		}
+		snd_pcm_t *pcm_handle = LINUX_pcm_handler_setup(&header);
 		
 		// init audio_data
 		unsigned char *audio_data = 0;
@@ -617,7 +580,7 @@ int main(int argc, char* argv[]) {
 			U32 total   = audCon.totalFrames / audCon.header->sampleFreq;
 			
 			if (elapsed >= total) {
-				snd_pcm_drain(pcm_handle);
+				PCMDrain(pcm_handle);
 				break;
 			}
 			
@@ -635,8 +598,8 @@ int main(int argc, char* argv[]) {
 			// pause the playback
 			if (pause_button_clicked == 1) {
 				pthread_mutex_lock(&audCon.mutex);
-				if (audCon.isPaused == 0) {
-					snd_pcm_pause(pcm_handle, 1);
+				if (audCon.isPaused == 0) {\
+					PCMPause(pcm_handle, 1);
 					audCon.isPaused = 1;
 				}  
 				pthread_mutex_unlock(&audCon.mutex);
@@ -645,7 +608,7 @@ int main(int argc, char* argv[]) {
 			// resume the playback
 			if (pause_button_clicked == 0) {
 				pthread_mutex_lock(&audCon.mutex);
-				snd_pcm_pause(pcm_handle, 0);
+				PCMPause(pcm_handle, 0);
 				audCon.isPaused = 0;
 				pthread_mutex_unlock(&audCon.mutex);
 			}
@@ -662,8 +625,8 @@ int main(int argc, char* argv[]) {
 		audCon.should_stop = 1;
 		pthread_join(audio_thread_id, NULL);
 		pthread_mutex_destroy(&audCon.mutex);
-		snd_pcm_drop(pcm_handle);
-		snd_pcm_close(pcm_handle);
+		DropPCMHandle(pcm_handle);
+		ClosePCMHandle(pcm_handle);
 		munmap(mapped_data, header.dataSize);
 		fclose(file);
 		CloseWindow();

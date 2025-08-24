@@ -57,3 +57,43 @@ void
 LINUX_get_current_directory(String8 *current_directory){
 	getcwd((char*)current_directory->str, 1024);
 }
+
+snd_pcm_t*
+LINUX_pcm_handler_setup(WaveHeader* header){
+	// pcm_handle and params init
+	snd_pcm_t *pcm_handle;
+	snd_pcm_hw_params_t *params;
+	
+	// open pcm in non blocking mode
+	S32 rc = snd_pcm_open(&pcm_handle, "default", SND_PCM_STREAM_PLAYBACK,SND_PCM_ASYNC);
+	if (rc < 0) {
+		fprintf(stderr, "unable to open pcm device: %s\n", snd_strerror(rc));
+	}
+	
+	// params init
+	snd_pcm_hw_params_alloca(&params);
+	snd_pcm_hw_params_any(pcm_handle, params);
+	snd_pcm_hw_params_set_access(pcm_handle, params,SND_PCM_ACCESS_RW_INTERLEAVED);
+	
+	// setup if wav type is U8 or S16LE -- basically bits per sample
+	if (header->bitsPerSample == 8) {
+		snd_pcm_hw_params_set_format(pcm_handle, params, SND_PCM_FORMAT_U8);
+	} else if (header->bitsPerSample == 16) {
+		snd_pcm_hw_params_set_format(pcm_handle, params, SND_PCM_FORMAT_S16_LE);
+	} else {
+		fprintf(stderr, "Unsupported bits per sample: %d\n", header->bitsPerSample);
+		snd_pcm_close(pcm_handle);
+	}
+	
+	//- Setting sample frequency and if track's mode
+	snd_pcm_hw_params_set_channels(pcm_handle, params, header->noOfChannels);
+	snd_pcm_hw_params_set_rate(pcm_handle, params, header->sampleFreq, 0);
+	
+	// setting params to pcm_handle
+	rc = snd_pcm_hw_params(pcm_handle, params);
+	if (rc < 0) {
+		fprintf(stderr, "unable to set hw parameters: %s\n", snd_strerror(rc));
+		snd_pcm_close(pcm_handle);
+	}
+	return pcm_handle;
+}

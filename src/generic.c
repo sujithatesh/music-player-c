@@ -17,3 +17,26 @@ void LoadDirectory(Arena *arena, String8 current_directory, FileEntry **entries,
 	}
 }
 
+snd_pcm_t* pcmHandlerSetup(WaveHeader *header) {
+	return LINUX_pcm_handler_setup(header);
+}
+
+void
+DropPCMHandle(snd_pcm_t *pcm_handle) {
+	snd_pcm_drop(pcm_handle);
+}
+
+void
+ClosePCMHandle(snd_pcm_t *pcm_handle) {
+	snd_pcm_close(pcm_handle);
+}
+
+void
+PCMPause(snd_pcm_t *pcm_handle, U32 pause_state) {
+	snd_pcm_pause(pcm_handle, pause_state);
+}
+
+void
+PCMDrain(snd_pcm_t *pcm_handle){
+	snd_pcm_drain(pcm_handle);
+}
