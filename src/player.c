@@ -3,8 +3,8 @@
 #include <pthread.h>
 
 #include "raylib.h"
-#include "base_basic_types.h"
 
+#include "base_basic_types.h"
 #include "base_types.c"
 #include "utils.c"
 #include "string_functions.c"
@@ -13,20 +13,6 @@
 #include "generic.c"
 
 #define font_size 30
-
-typedef struct{
-	U32 isPaused;
-	U32 isPlaying;
-	snd_pcm_t *pcm_handle;
-	U8 *audio_data;
-	U32 should_stop;
-	U32 totalFrames;
-	U32 framesWritten;
-	U32 remainingFrames;
-	WaveHeader *header;
-	U32 chunk_size;
-	pthread_mutex_t mutex;
-}AudioContext;
 
 typedef struct {
 	U32 hours;
@@ -48,6 +34,7 @@ B8 button_is_hovering(Button *button){
 	if(mouse_x >= button->rec.x && mouse_x < button->rec.x + button->rec.width && mouse_y >= button->rec.y && mouse_y < button->rec.y + button->rec.height){
 		return 1;
 	}
+	
 	return 0;
 }
 
@@ -83,19 +70,7 @@ double get_current_time(void){
 	return current_time.tv_sec + current_time.tv_nsec / 1000000000.0;
 }
 
-// get the playback position in seconds
-U32 get_playback_position(AudioContext *ctx){
-	if (!ctx->isPlaying && ctx->isPaused) return 0;
-	
-	snd_pcm_sframes_t delay = 0;
-	S16 rt = snd_pcm_delay(ctx->pcm_handle, &delay);
-	if (rt < 0) delay = 0;
-	
-	// caculate frames without delay
-	U32 frames_played = ctx->framesWritten - ((delay > 0) ? delay : 0);
-	
-	return (U32)frames_played / ctx->header->sampleFreq;
-}
+
 
 // audio loop
 void* audio_thread(void* arg){
@@ -107,7 +82,7 @@ void* audio_thread(void* arg){
 		if (!ctx->isPaused && ctx->remainingFrames > 0) {
 			// checking the frames to write
 			U32 writable_size = (ctx->remainingFrames < ctx->chunk_size) ? ctx->remainingFrames : ctx->chunk_size;
-			S32 rc = snd_pcm_writei(ctx->pcm_handle, ctx->audio_data, writable_size);
+			S32 rc = PCM_Write(ctx, writable_size);
 			
 			//buffer is full just continue
 			if (rc == -EAGAIN) {
@@ -117,7 +92,7 @@ void* audio_thread(void* arg){
 				if (rc == -EPIPE) {
 					// Underrun occurred, prepare the PCM
 					printf("Audio underrun occurred, recovering...\n");
-					snd_pcm_prepare(ctx->pcm_handle);
+					PCM_Prepare(ctx);
 				} else {
 					printf("Audio write error: %s\n", snd_strerror(rc));
 					ctx->isPaused = 1;
@@ -291,15 +266,18 @@ void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena
 			}
 		}
 		
-		if(IsKeyPressed(KEY_UP)) {
+		if(IsKeyPressed(KEY_UP)) 
+		{
 			if(hovering_button <= 0) 
 				hovering_button = 0;
-			else {
+			else 
+			{
 				hovering_button -= 1;
 			}
 		}
 		
-		if(IsKeyPressed(KEY_Q)){
+		if(IsKeyPressed(KEY_Q))
+		{
 			close_modal:
 			break;
 		}
@@ -308,16 +286,19 @@ void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena
 		int view_height = 720;
 		
 		// Only allow scrolling if content is taller than the screen
-		if (content_height > view_height) {
+		if (content_height > view_height) 
+		{
 			int min_offset = view_height - content_height; // negative value or 0
 			int max_offset = 0;
 			
-			if (wheelDirection > 0) { // scroll up
+			if (wheelDirection > 0) 
+			{ // scroll up
 				camera.offset.y = (camera.offset.y + font_size > max_offset)
 					? max_offset
 					: camera.offset.y + font_size;
 			}
-			else if (wheelDirection < 0) { // scroll down
+			else if (wheelDirection < 0) 
+			{ // scroll down
 				camera.offset.y = (camera.offset.y - font_size < min_offset)
 					? min_offset
 					: camera.offset.y - font_size;
@@ -341,7 +322,8 @@ void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena
 	CloseWindow();
 }
 
-int main(int argc, char* argv[]) {
+int main(int argc, char* argv[]) 
+{
 	String8 home_dir;
 	Arena text_arena = arena_commit(10 * 1024 * 1024);
 	home_dir = STRING8(getenv("HOME"));
@@ -351,7 +333,8 @@ int main(int argc, char* argv[]) {
 	int pywal_background_color_int = 0;
 	
 	// TODO(sujith): find some other way for this
-	if(!access(pywal_colors, F_OK)){
+	if(!access(pywal_colors, F_OK))
+	{
 		FILE *pywal = fopen(pywal_colors,"r");
 		char Buffer[12] = {0};
 		fread(Buffer, 1, sizeof(Buffer), pywal);
@@ -362,7 +345,8 @@ int main(int argc, char* argv[]) {
 		pywal_background_color[9]  = 'F';
 		pywal_background_color[10] = '\0';
 		
-		for(int i = 0; i < 6; i++){
+		for(int i = 0; i < 6; i++)
+		{
 			char current_char = Buffer[i + 1];
 			pywal_background_color[i + 2] = (current_char >= 'a' && current_char <= 'f') ?
 			(current_char - 32) : current_char;
@@ -439,7 +423,7 @@ int main(int argc, char* argv[]) {
 		unsigned char *mapped_data = (unsigned char *)mmap(NULL, header.dataSize, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
 		
 		// pcm_handle and params init
-		snd_pcm_t *pcm_handle = LINUX_pcm_handler_setup(&header);
+		PCM_Handle *pcm_handle = PCM_HandlerSetup(&header);
 		
 		// init audio_data
 		unsigned char *audio_data = 0;
@@ -548,15 +532,16 @@ int main(int argc, char* argv[]) {
 		
 		pause_button.onclick = (void*)pause_button_on_click;
 		
-		while (!WindowShouldClose()) {
+		while (!WindowShouldClose())
+		{
 			BeginDrawing();
 			// pywal or default color
 			Color wal_color = GetColor((found_pywal_colors) ? pywal_background_color_int : 0x6F7587FF);
 			ClearBackground(wal_color);
 			
-			if(file_path.str != 0){
+			if(file_path.str != 0)
 				DrawText(TextFormat("Current: %s", file_path), 10, 10, 20, DARKGRAY);
-			}
+			
 			
 			// Draw Album art
 			DrawTexture(texture, GetScreenWidth()/2 - 50, GetScreenHeight()/2 - 50, WHITE);
@@ -570,7 +555,8 @@ int main(int argc, char* argv[]) {
 			DrawText(artist_name ? artist_name : "Unknown artist", 20, 130, 20, GREEN);
 			
 			// playlist
-			for(U32 i = currently_playing; i < file_count; i++) {
+			for(U32 i = currently_playing; i < file_count; i++)
+			{
 				DrawText((char*)file_paths[i].str, 1200 - 20 * font_size, font_size * (i - currently_playing), font_size / 4 * 3, GREEN);
 			}
 			
@@ -579,45 +565,44 @@ int main(int argc, char* argv[]) {
 			U32 elapsed = get_playback_position(&audCon);
 			U32 total   = audCon.totalFrames / audCon.header->sampleFreq;
 			
-			if (elapsed >= total) {
+			if (elapsed >= total)
+			{
 				PCMDrain(pcm_handle);
 				break;
 			}
-			
-			/*
-			// get current playback pos
-			current_pos = get_playback_position(&audCon);
-			*/
+			// TODO(sujith):  can we do anything else, dont want a function pointer
 			B8 space_pressed = IsKeyPressed(KEY_SPACE);
-			if(IsMouseButtonPressed(0) || space_pressed){
-				if(button_is_hovering(&pause_button) || space_pressed){
+			if(IsMouseButtonPressed(0) || space_pressed)
+			{
+				if(button_is_hovering(&pause_button) || space_pressed)
+				{
 					((void (*)(Button*, B8*, String8*))pause_button.onclick)(&pause_button, &pause_button_clicked, play_pause);
 				}
 			}
-			
 			// pause the playback
-			if (pause_button_clicked == 1) {
+			if (pause_button_clicked == 1)
+			{
 				pthread_mutex_lock(&audCon.mutex);
-				if (audCon.isPaused == 0) {\
+				if (audCon.isPaused == 0)
+				{
 					PCMPause(pcm_handle, 1);
 					audCon.isPaused = 1;
 				}  
 				pthread_mutex_unlock(&audCon.mutex);
 			}
-			
 			// resume the playback
-			if (pause_button_clicked == 0) {
+			if (pause_button_clicked == 0) 
+			{
 				pthread_mutex_lock(&audCon.mutex);
 				PCMPause(pcm_handle, 0);
 				audCon.isPaused = 0;
 				pthread_mutex_unlock(&audCon.mutex);
 			}
-			
 			// quit
-			if (IsKeyPressed(KEY_Q)) {
+			if (IsKeyPressed(KEY_Q)) 
+			{
 				break;
 			} 
-			
 			EndDrawing();
 		}
 		

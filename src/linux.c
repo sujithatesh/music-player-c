@@ -97,3 +97,15 @@ LINUX_pcm_handler_setup(WaveHeader* header){
 	}
 	return pcm_handle;
 }
+
+U32 
+LINUX_PCM_Write(snd_pcm_t* pcm_handle, U8 *audio_data, U32 writable_size)
+{
+	return snd_pcm_writei(pcm_handle, audio_data, writable_size);
+}
+
+void
+LINUX_PCM_Prepare(snd_pcm_t* pcm_handle)
+{
+	snd_pcm_prepare(pcm_handle);
+}

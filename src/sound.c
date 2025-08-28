@@ -1,9 +1,4 @@
 
-typedef enum {
-	WAV_FILE,
-	NOT_SUPPORTED
-} file_type;
-
 // WAV HEADER
 typedef struct{
 	U8  fileTypeBlocId[4];
@@ -20,6 +15,27 @@ typedef struct{
 	U8  dataId[4];
 	U32 dataSize;
 } WaveHeader;
+
+typedef struct{
+	U32 isPaused;
+	U32 isPlaying;
+	snd_pcm_t *pcm_handle;
+	U8 *audio_data;
+	U32 should_stop;
+	U32 totalFrames;
+	U32 framesWritten;
+	U32 remainingFrames;
+	WaveHeader *header;
+	U32 chunk_size;
+	pthread_mutex_t mutex;
+}AudioContext;
+
+
+typedef enum {
+	WAV_FILE,
+	NOT_SUPPORTED
+} file_type;
+
 
 typedef struct{
 	U8 infoBlocId[4];
@@ -114,3 +130,17 @@ typedef struct
 	WaveHeader* wavHeader;
 	U32 mode;
 } AudioData;
+
+// get the playback position in seconds
+U32 get_playback_position(AudioContext *ctx){
+	if (!ctx->isPlaying && ctx->isPaused) return 0;
+	
+	snd_pcm_sframes_t delay = 0;
+	S16 rt = snd_pcm_delay(ctx->pcm_handle, &delay);
+	if (rt < 0) delay = 0;
+	
+	// caculate frames without delay
+	U32 frames_played = ctx->framesWritten - ((delay > 0) ? delay : 0);
+	
+	return (U32)frames_played / ctx->header->sampleFreq;
+}
