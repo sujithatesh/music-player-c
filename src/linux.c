@@ -1,9 +1,27 @@
 #include <unistd.h>
 #include <dirent.h>
 #include <sys/stat.h>
+#include <alsa/asoundlib.h>
 
 #define MAX_FILES 1024
 #define MAX_PATH 1024
+
+// WAV HEADER
+typedef struct{
+	U8  fileTypeBlocId[4];
+	U32 fileSize;
+	U8  fileFormatId[4];
+	U8  fmtId[4];
+	U32 blocSize;
+	U16 audioFormat;
+	U16 noOfChannels;
+	U32 sampleFreq;
+	U32 bytePerSec;
+	U32 bytePerBloc;
+	U16 bitsPerSample;
+	U8  dataId[4];
+	U32 dataSize;
+} WaveHeader;
 
 typedef struct timespec mp_time; 
 
@@ -32,7 +50,7 @@ LINUX_load_directory(Arena *arena, String8 path, FileEntry **entries, U32 *entry
 		(*entry_count)++;
 		
 		char fullPath[MAX_PATH];
-		snprintf(fullPath, MAX_PATH, "%s/%s", path.str, dp->d_name);
+		snprintf(fullPath, MAX_PATH, "%s/%s", (char*)path.str, (char*)dp->d_name);
 		
 		struct stat st;
 		stat(fullPath, &st);

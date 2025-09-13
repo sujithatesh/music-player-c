@@ -6,7 +6,7 @@ OS=$(uname)
 if [[ "$OS" == "Linux" ]]; then
     echo "Building for Linux..."
     export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/home/sujith/gitshit/raylib-5.0_linux_amd64/lib
-    clang ./player.c -pedantic -Wall -Wpedantic -g -o ../player -lasound\
+    clang player.c -pedantic -Wall -Wpedantic -g -o ../player -lasound\
         -I ../include\
         -L../lib\
         -lraylib -lm \

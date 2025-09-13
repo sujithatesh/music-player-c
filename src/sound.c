@@ -1,21 +1,3 @@
-
-// WAV HEADER
-typedef struct{
-	U8  fileTypeBlocId[4];
-	U32 fileSize;
-	U8  fileFormatId[4];
-	U8  fmtId[4];
-	U32 blocSize;
-	U16 audioFormat;
-	U16 noOfChannels;
-	U32 sampleFreq;
-	U32 bytePerSec;
-	U32 bytePerBloc;
-	U16 bitsPerSample;
-	U8  dataId[4];
-	U32 dataSize;
-} WaveHeader;
-
 typedef struct{
 	U32 isPaused;
 	U32 isPlaying;
@@ -53,6 +35,25 @@ U16
 TwoBit_ASCII_LE(U8* Buffer, U8 Offset){
 	return Buffer[Offset] | (Buffer[Offset + 1] << 8);
 }
+
+
+void
+PrintWaveHeader(WaveHeader* wavHeader){
+	printf("fileTypeBlocId\t  : %.4s\n", (char*)wavHeader->fileTypeBlocId);
+	printf("fileSize  : %.4d\n", wavHeader->fileSize);
+	printf("fileFormatId\t  : %.4s\n", (char*)wavHeader->fileFormatId);
+	printf("fmtId \t  : %.4s\n", (char*)wavHeader->fmtId);
+	printf("blocSize : %d\n",   wavHeader->blocSize);
+	printf("audioFormat   : %d\n",   wavHeader->audioFormat);
+	printf("noOfChannels  : %d\n",   wavHeader->noOfChannels);
+	printf("sampleFreq : %d\n",  wavHeader->sampleFreq);
+	printf("bytePerSec  : %d\n",   wavHeader->bytePerSec);
+	printf("bytePerBloc : %d\n",   wavHeader->bytePerBloc);
+	printf("bitsPerSample\t : %d\n",       wavHeader->bitsPerSample);
+	printf("dataId\t  : %.4s\n", (char*)wavHeader->dataId);
+	printf("dataSize  : %d\n",   wavHeader->dataSize);
+}
+
 
 /*
 [Master RIFF chunk]
@@ -94,31 +95,14 @@ HeaderSetup(WaveHeader* Header, U8* Buffer){
 	
 	// TODO(sujith): find a better way to do this
 	// verifying wav file format
-	if (strncmp((char*)Header->fileTypeBlocId, "RIFF", 4) == 0 ||
-			strncmp((char*)Header->fileFormatId, "WAVE", 4) == 0 ||
+	if (strncmp((char*)Header->fileTypeBlocId, "RIFF", 4) == 0 &&
+			strncmp((char*)Header->fileFormatId, "WAVE", 4) == 0 &&
 			strncmp((char*)Header->fmtId, "fmt ", 4) == 0) {
 		return WAV_FILE;
 	}
 	else {
 		return NOT_SUPPORTED;
 	}
-}
-
-void
-PrintWaveHeader(WaveHeader* wavHeader){
-	printf("fileTypeBlocId\t  : %.4s\n", wavHeader->fileTypeBlocId);
-	printf("fileSize  : %.4d\n", wavHeader->fileSize);
-	printf("fileFormatId\t  : %.4s\n", wavHeader->fileFormatId);
-	printf("fmtId \t  : %.4s\n", wavHeader->fmtId);
-	printf("blocSize : %d\n",   wavHeader->blocSize);
-	printf("audioFormat   : %d\n",   wavHeader->audioFormat);
-	printf("noOfChannels  : %d\n",   wavHeader->noOfChannels);
-	printf("sampleFreq : %d\n",  wavHeader->sampleFreq);
-	printf("bytePerSec  : %d\n",   wavHeader->bytePerSec);
-	printf("bytePerBloc : %d\n",   wavHeader->bytePerBloc);
-	printf("bitsPerSample\t : %d\n",       wavHeader->bitsPerSample);
-	printf("dataId\t  : %.4s\n", wavHeader->dataId);
-	printf("dataSize  : %d\n",   wavHeader->dataSize);
 }
 
 typedef struct 

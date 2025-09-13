@@ -1,3 +1,5 @@
+#include <assert.h>
+
 typedef struct String8{
 	U8 *str; U64 size;
 } String8;
@@ -81,7 +83,7 @@ String8 push_str8_copy(Arena *arena, String8 src) {
 	}
 	
 	char *dst = (char*)arena->memory + arena->used;
-	memcpy(dst, src.str, src.size);
+	copy_memory(dst, src.str, src.size);
 	dst[src.size] = '\0';
 	
 	arena->used += src.size + 1;

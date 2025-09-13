@@ -1,18 +1,23 @@
-#include <alsa/asoundlib.h>
 #include <sys/mman.h>
 #include <pthread.h>
 
 #include "raylib.h"
 
 #include "base_basic_types.h"
-#include "base_types.c"
 #include "utils.c"
+#include "base_types.c"
 #include "string_functions.c"
-#include "sound.c"
 #include "linux.c"
+#include "sound.c"
 #include "generic.c"
 
 #define font_size 30
+
+typedef enum {
+	ERROR,
+	WARNING,
+	SUCESS
+} MessageType;
 
 typedef struct {
 	U32 hours;
@@ -22,13 +27,12 @@ typedef struct {
 
 typedef struct{
 	Rectangle rec;
-	void* onclick;
-	void* onhover;
 	Color color;
 	String8 title;
-} Button;
+}Button;
 
-B8 button_is_hovering(Button *button){
+B8 button_is_hovering(Button *button)
+{
 	U32 mouse_x = GetMouseX();
 	U32 mouse_y = GetMouseY();
 	if(mouse_x >= button->rec.x && mouse_x < button->rec.x + button->rec.width && mouse_y >= button->rec.y && mouse_y < button->rec.y + button->rec.height){
@@ -38,7 +42,8 @@ B8 button_is_hovering(Button *button){
 	return 0;
 }
 
-void pause_button_on_click(Button *button, B8* pause_button_clicked, String8 play_pause[]){
+void pause_button_on_click(Button *button, B8* pause_button_clicked, String8 play_pause[])
+{
 	if(*pause_button_clicked == 0){
 		*pause_button_clicked = 1;
 		button->title = play_pause[0];
@@ -115,9 +120,11 @@ void* audio_thread(void* arg){
 	return NULL;
 }
 
-void getTagDetails(U8* value, String8 *current_byte, char **tag_detail, U8 byte_padding_u32){
+void getTagDetails(U8* value, String8 *current_byte, char **tag_detail, U8 byte_padding_u32)
+{
 	while(true){
-		if(!compareValueStringSlice(value, *current_byte, 0, 4)){
+		if(!compareValueStringSlice(value, *current_byte, 0, 4))
+		{
 			current_byte->str += byte_padding_u32;
 		}
 		else{
@@ -163,6 +170,25 @@ String8 PopPath(Arena *arena, String8 path) {
 	return result;
 }
 
+void
+ToastMessage(String8 message)
+{
+	U32 width          = GetScreenWidth();
+	U32 temp_font_size = font_size - 5;
+	U32 message_len    = MeasureText((char*)message.str, temp_font_size);
+	U32 rec_x          = width - message_len - temp_font_size;
+	
+	//DrawRectangleLines(width - (size + 10), 0, (size + 10), font_size, GREEN);
+	Rectangle rec;
+	rec.x      = rec_x;
+	rec.y      = 2;
+	rec.width  = message_len + 6;
+	rec.height = temp_font_size;
+	
+	DrawRectangleRoundedLines(rec, 0.1, 4, ORANGE);
+	DrawText((char*)message.str, rec_x + 2, 3, temp_font_size, GREEN);
+}
+
 void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena, String8 current_directory, Color found_pywal_colors){
 	SetTraceLogLevel(LOG_NONE);
 	SetConfigFlags(FLAG_VSYNC_HINT);
@@ -183,10 +209,13 @@ void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena
 	U32 selected_buttons[1024] = {0};
 	U32 selected_button_count  = 0;
 	B32 multiple_selected      = 0;
+	B32 send_toast             = 0;
+	S32 timer                  = 2000;
 	
 	LoadDirectory(text_arena, current_directory, entries, &entry_count, 0);
 	
-	while(!WindowShouldClose()){
+	while(!WindowShouldClose())
+	{
 		BeginDrawing();
 		BeginMode2D(camera);
 		ClearBackground(found_pywal_colors);
@@ -196,7 +225,8 @@ void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena
 		Rectangle file_content;
 		
 		// precaculate
-		for(U32 temp = 0; temp < entry_count; temp++){
+		for(U32 temp = 0; temp < entry_count; temp++)
+		{
 			file_content.x      = 0;
 			file_content.y      = temp * font_size;
 			file_content.width  = 1200;
@@ -212,12 +242,14 @@ void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena
 		B32 mouse_moved = 0;
 		
 		if(mouseMoved.x != 0 || mouseMoved.y != 0)
+		{
 			mouse_moved = 1;
+		}
 		
 		// Draw loop
-		for(index = 0; index < entry_count; index++){
+		for(index = 0; index < entry_count; index++)
+		{
 			DrawButton(&buttons[index], RED);
-			
 			if(button_is_hovering(&buttons[index]) && mouse_moved){
 				hovering_button = index;
 			}
@@ -225,19 +257,64 @@ void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena
 		
 		DrawButtonOutline(&buttons[hovering_button], GREEN, RED, font_size);
 		
+		if(timer > 0 && send_toast)
+		{
+			String8 not_correct_file_type;
+			not_correct_file_type.str = arena_alloc(text_arena, 40);
+			not_correct_file_type = STRING8("Invalid wav file");
+			ToastMessage(not_correct_file_type);
+			timer -= GetFrameTime() * 1000;
+		}
+		else
+		{
+			send_toast = false;
+			timer = 2000;
+		}
+		
 		for(U32 i = 0; i < selected_button_count; i++)
+		{
 			DrawButtonOutline(&buttons[selected_buttons[i]], RED, WHITE, font_size);
+		}
 		
-		
+		// event loop
 		if((IsKeyPressed(KEY_M)) || IsMouseButtonPressed(1)) {
-			file_paths[selected_button_count] = entries[hovering_button]->full_path; 
-			selected_buttons[selected_button_count] = hovering_button; // not index
-			*file_count = ++selected_button_count;
-			multiple_selected = 1;
+			String8 current_file = entries[hovering_button]->full_path;
+			
+			FILE *file = 0;
+			file = fopen((char*)current_file.str, "rb");
+			
+			fseek(file, 0, SEEK_END);
+			U64 file_size = ftell(file);
+			fseek(file, 0, SEEK_SET);
+			
+			// TODO(sujith): remove the WaveHeader and have a generic header(?)
+			// init buffer
+			U8 Buffer[50];
+			WaveHeader header;
+			
+			// find out file size and set header filesize
+			header.fileSize = file_size;
+			fread(Buffer, 1, sizeof(Buffer), file);
+			
+			// populate header
+			file_type file_extension = HeaderSetup(&header, Buffer);
+			
+			if(file_extension != WAV_FILE)
+			{
+				send_toast = 1;
+			}
+			else
+			{
+				file_paths[selected_button_count] = current_file; 
+				selected_buttons[selected_button_count] = hovering_button; // not index
+				*file_count = ++selected_button_count;
+				multiple_selected = 1;
+			}
 		}
 		
 		
-		if(IsMouseButtonPressed(0) || IsKeyPressed(KEY_ENTER)){
+		if(IsMouseButtonPressed(0) || IsKeyPressed(KEY_ENTER))
+		{
 			if(entries[hovering_button]->is_directory){
 				if(hovering_button == 0){
 					new_directory = PopPath(text_arena, current_directory);
@@ -250,11 +327,40 @@ void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena
 				reload_dir = 1;
 			}
 			else {
-				if(multiple_selected != 1) {
-					file_paths[selected_button_count] = entries[hovering_button]->full_path;
-					*file_count = ++selected_button_count;
+				String8 current_file = entries[hovering_button]->full_path;
+				
+				FILE *file = 0;
+				file = fopen((char*)current_file.str, "rb");
+				
+				fseek(file, 0, SEEK_END);
+				U64 file_size = ftell(file);
+				fseek(file, 0, SEEK_SET);
+				
+				// TODO(sujith): remove the WaveHeader and have a generic header(?)
+				// init buffer
+				U8 Buffer[50];
+				WaveHeader header;
+				
+				// find out file size and set header filesize
+				header.fileSize = file_size;
+				fread(Buffer, 1, sizeof(Buffer), file);
+				
+				// populate header
+				file_type file_extension = HeaderSetup(&header, Buffer);
+				
+				if(file_extension != WAV_FILE)
+				{
+					send_toast = 1;
 				}
-				goto close_modal;
+				else 
+				{
+					
+					if(multiple_selected != 1) {
+						file_paths[selected_button_count] = entries[hovering_button]->full_path;
+						*file_count = ++selected_button_count;
+					}
+					goto close_modal;
+				}
 			}
 		}
 		
@@ -322,6 +428,8 @@ void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena
 	CloseWindow();
 }
 
+
+
 int main(int argc, char* argv[]) 
 {
 	String8 home_dir;
@@ -362,9 +470,9 @@ int main(int argc, char* argv[])
 	String8 file_path = {.str = 0, .size = 0};
 	String8 file_paths[1024] = {0};
 	U32 file_count = 0;
+	String8 current_directory = {0};
 	
 	if(argc == 1){
-		String8 current_directory = {0};
 		current_directory.str = arena_alloc(&text_arena, 1024);
 		
 		GetCurrentDirectory(&current_directory);
@@ -376,14 +484,15 @@ int main(int argc, char* argv[])
 	else {
 	}
 	
-	for(U32 i = 1; i < argc; i++){
+	for(U32 i = 1; i < argc; i++)
+	{
 		file_paths[i - 1] = STRING8(argv[i]);
 		file_count = argc - 1;
 	}
 	
 	FILE *file = 0;
-	for(U32 currently_playing = 0; currently_playing < file_count; currently_playing++){
-		
+	for(U32 currently_playing = 0; currently_playing < file_count; currently_playing++)
+	{
 		file = fopen((char*)file_paths[currently_playing].str, "rb");
 		
 		fseek(file, 0, SEEK_END);
@@ -467,14 +576,13 @@ int main(int argc, char* argv[])
 		remainingFrames =
 			header.dataSize / (header.bitsPerSample / 8 * header.noOfChannels);
 		
-		
 		// Setup AudioContext
 		AudioContext audCon = {0};
 		audCon.isPaused = 0;
 		audCon.isPlaying = 1;
 		audCon.should_stop = 0;
 		audCon.pcm_handle = pcm_handle;
-		audCon.audio_data = audio_data;
+		audCon.audio_data = (U8*)audio_data;
 		audCon.remainingFrames = remainingFrames;
 		audCon.framesWritten = 0;
 		audCon.totalFrames = header.dataSize / (header.bitsPerSample / 8 * header.noOfChannels);
@@ -526,11 +634,8 @@ int main(int argc, char* argv[])
 		Button pause_button = {
 			.rec = pause_rectangle, .color = RED, 
 			.title = play_pause[1], 
-			.onhover = 0, 
-			.onclick = 0,
 		};
 		
-		pause_button.onclick = (void*)pause_button_on_click;
 		
 		while (!WindowShouldClose())
 		{
@@ -542,7 +647,6 @@ int main(int argc, char* argv[])
 			if(file_path.str != 0)
 				DrawText(TextFormat("Current: %s", file_path), 10, 10, 20, DARKGRAY);
 			
-			
 			// Draw Album art
 			DrawTexture(texture, GetScreenWidth()/2 - 50, GetScreenHeight()/2 - 50, WHITE);
 			
@@ -550,7 +654,9 @@ int main(int argc, char* argv[])
 			current_pos = get_playback_position(&audCon);
 			formatted_time current_duration = {0};
 			get_formatted_time_from_sec(&current_duration, current_pos);
-			DrawText(TextFormat("%02d:%02d / %02d:%02d", current_duration.min, current_duration.sec, total_duration.min, total_duration.sec), 20, 50, 20, RED);
+			
+			DrawText(TextFormat("%02d:%02d / %02d:%02d", current_duration.min,
+													current_duration.sec, total_duration.min, total_duration.sec), 20, 50, 20, RED);
 			DrawText(album_name ? album_name : "Unknown album", 20, 110, 20, GREEN);
 			DrawText(artist_name ? artist_name : "Unknown artist", 20, 130, 20, GREEN);
 			
@@ -576,7 +682,7 @@ int main(int argc, char* argv[])
 			{
 				if(button_is_hovering(&pause_button) || space_pressed)
 				{
-					((void (*)(Button*, B8*, String8*))pause_button.onclick)(&pause_button, &pause_button_clicked, play_pause);
+					pause_button_on_click(&pause_button, &pause_button_clicked, play_pause);
 				}
 			}
 			// pause the playback
