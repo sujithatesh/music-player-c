@@ -140,9 +140,9 @@ void DrawButton(Button *clickable_rec, Color font_color){
 	return;
 }
 
-void DrawButtonOutline(Button *clickable_rec, Color font_color,Color outline_color, U32 margin){
-	DrawRectangleLines(clickable_rec->rec.x + margin, clickable_rec->rec.y, clickable_rec->rec.width - 2 * margin, clickable_rec->rec.height, outline_color);
-	DrawText((char*)clickable_rec->title.str, clickable_rec->rec.x + clickable_rec->rec.width * 0.1, clickable_rec->rec.y + clickable_rec->rec.height * 0.1, font_size, font_color);
+void DrawTextWithOutline(Rectangle rec, Color font_color,Color outline_color, U32 margin, String8 text){
+	DrawRectangleLines(rec.x + margin, rec.y, rec.width - 2 * margin, rec.height, outline_color);
+	DrawText((char*)text.str, rec.x + rec.width * 0.1, rec.y + rec.height * 0.1, font_size, font_color);
 	return;
 }
 
@@ -255,7 +255,7 @@ void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena
 			}
 		}
 		
-		DrawButtonOutline(&buttons[hovering_button], GREEN, RED, font_size);
+		DrawTextWithOutline(buttons[hovering_button].rec, GREEN, RED, font_size, buttons[hovering_button].title);
 		
 		if(timer > 0 && send_toast)
 		{
@@ -273,7 +273,7 @@ void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena
 		
 		for(U32 i = 0; i < selected_button_count; i++)
 		{
-			DrawButtonOutline(&buttons[selected_buttons[i]], RED, WHITE, font_size);
+			DrawTextWithOutline(buttons[selected_buttons[i]].rec, RED, WHITE, font_size, buttons[selected_buttons[i]].title);
 		}
 		
 		// event loop
@@ -305,13 +305,14 @@ void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena
 			}
 			else
 			{
-				file_paths[selected_button_count] = current_file; 
-				selected_buttons[selected_button_count] = hovering_button; // not index
-				*file_count = ++selected_button_count;
-				multiple_selected = 1;
+				if(!entries[hovering_button]->is_directory){
+					file_paths[selected_button_count] = current_file; 
+					selected_buttons[selected_button_count] = hovering_button; // not index
+					*file_count = ++selected_button_count;
+					multiple_selected = 1;
+				}
 			}
 		}
-		
 		
 		if(IsMouseButtonPressed(0) || IsKeyPressed(KEY_ENTER))
 		{
@@ -354,7 +355,6 @@ void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena
 				}
 				else 
 				{
-					
 					if(multiple_selected != 1) {
 						file_paths[selected_button_count] = entries[hovering_button]->full_path;
 						*file_count = ++selected_button_count;
