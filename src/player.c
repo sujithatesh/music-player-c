@@ -189,6 +189,31 @@ ToastMessage(String8 message)
 	DrawText((char*)message.str, rec_x + 2, 3, temp_font_size, GREEN);
 }
 
+file_type
+CheckValidWavFile(String8 file_path, B32 *send_toast)
+{
+	FILE *file = 0;
+	file = fopen((char*)file_path.str, "rb");
+	
+	fseek(file, 0, SEEK_END);
+	U64 file_size = ftell(file);
+	fseek(file, 0, SEEK_SET);
+	
+	// TODO(sujith): remove the WaveHeader and have a generic header(?)
+	// init buffer
+	U8 Buffer[50];
+	WaveHeader header;
+	
+	// find out file size and set header filesize
+	header.fileSize = file_size;
+	fread(Buffer, 1, sizeof(Buffer), file);
+	
+	// populate header
+	file_type file_extension = HeaderSetup(&header, Buffer);
+	
+	return file_extension;
+}
+
 void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena, String8 current_directory, Color found_pywal_colors){
 	SetTraceLogLevel(LOG_NONE);
 	SetConfigFlags(FLAG_VSYNC_HINT);
@@ -279,25 +304,7 @@ void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena
 		// event loop
 		if((IsKeyPressed(KEY_M)) || IsMouseButtonPressed(1)) {
 			String8 current_file = entries[hovering_button]->full_path;
-			
-			FILE *file = 0;
-			file = fopen((char*)current_file.str, "rb");
-			
-			fseek(file, 0, SEEK_END);
-			U64 file_size = ftell(file);
-			fseek(file, 0, SEEK_SET);
-			
-			// TODO(sujith): remove the WaveHeader and have a generic header(?)
-			// init buffer
-			U8 Buffer[50];
-			WaveHeader header;
-			
-			// find out file size and set header filesize
-			header.fileSize = file_size;
-			fread(Buffer, 1, sizeof(Buffer), file);
-			
-			// populate header
-			file_type file_extension = HeaderSetup(&header, Buffer);
+			file_type file_extension = CheckValidWavFile(current_file, &send_toast);
 			
 			if(file_extension != WAV_FILE)
 			{
@@ -329,25 +336,7 @@ void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena
 			}
 			else {
 				String8 current_file = entries[hovering_button]->full_path;
-				
-				FILE *file = 0;
-				file = fopen((char*)current_file.str, "rb");
-				
-				fseek(file, 0, SEEK_END);
-				U64 file_size = ftell(file);
-				fseek(file, 0, SEEK_SET);
-				
-				// TODO(sujith): remove the WaveHeader and have a generic header(?)
-				// init buffer
-				U8 Buffer[50];
-				WaveHeader header;
-				
-				// find out file size and set header filesize
-				header.fileSize = file_size;
-				fread(Buffer, 1, sizeof(Buffer), file);
-				
-				// populate header
-				file_type file_extension = HeaderSetup(&header, Buffer);
+				file_type file_extension = CheckValidWavFile(current_file, &send_toast);
 				
 				if(file_extension != WAV_FILE)
 				{
