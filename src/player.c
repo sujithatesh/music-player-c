@@ -1,7 +1,9 @@
 #include <sys/mman.h>
 #include <pthread.h>
+#include <time.h>
 
 #include "raylib.h"
+#include "spall.h"
 
 #include "base_basic_types.h"
 #include "utils.c"
@@ -12,6 +14,16 @@
 #include "generic.c"
 
 #define FONT_SIZE 23
+#define SPALL_BUFFER_SIZE 10 * 1024 * 1024
+
+#define SPALL_BEGIN(event_name) \
+spall_buffer_begin(&spall_ctx, &spall_buffer, event_name, sizeof(event_name)-1, get_time_in_nanos())
+
+#define SPALL_END() \
+spall_buffer_end(&spall_ctx, &spall_buffer, get_time_in_nanos())
+
+static SpallProfile spall_ctx;
+static SpallBuffer  spall_buffer;
 
 typedef enum {
 	ERROR,
@@ -38,6 +50,13 @@ typedef struct
 	U32 *array;
 } ArrayHashMap;
 
+
+uint64_t get_time_in_nanos(void) {
+	struct timespec spec;
+	clock_gettime(CLOCK_MONOTONIC, &spec);
+	uint64_t ts = ((uint64_t)spec.tv_sec * 1000000000ull) + (uint64_t)spec.tv_nsec;
+	return ts;
+}
 
 B8 button_is_hovering(Button *button, F32 mouse_x, F32 mouse_y)
 {
@@ -80,47 +99,50 @@ F64 get_current_time(void){
 	clock_gettime(CLOCK_MONOTONIC, &current_time);
 	return current_time.tv_sec + current_time.tv_nsec / 1000000000.0;
 }
-
-// audio loop
-void* audio_thread(void* arg){
+void* audio_thread(void* arg) {
 	AudioContext *ctx = (AudioContext*)arg;
-	// NOTE(sujith): do we need this should_stop var?
-	while(!ctx->should_stop){
+	
+	// -------------------- Spall setup --------------------
+#define AUDIO_THREAD_BUFFER_SIZE (10*1024*1024)
+	unsigned char *buffer = malloc(AUDIO_THREAD_BUFFER_SIZE);
+	
+	SpallBuffer thread_buffer = {
+		.pid = 0, // optional, 0 = auto
+		.tid = (uint32_t)pthread_self(),
+		.length = AUDIO_THREAD_BUFFER_SIZE,
+		.data = buffer
+	};
+	
+	spall_buffer_init(&spall_ctx, &thread_buffer);
+	
+	// -------------------- Thread work --------------------
+	while(!ctx->should_stop) {
+		spall_buffer_begin(&spall_ctx, &thread_buffer, "audio_loop", sizeof("audio_loop")-1, get_time_in_nanos());
+		
 		pthread_mutex_lock(&ctx->mutex);
-		// if there are frames remaining and track is playing write to buffer
-		if (!ctx->isPaused && ctx->remainingFrames > 0) {
-			// checking the frames to write
-			U32 writable_size = (ctx->remainingFrames < ctx->chunk_size) ? ctx->remainingFrames : ctx->chunk_size;
-			S32 rc = PCM_Write(ctx, writable_size);
-			
-			//buffer is full just continue
-			if (rc == -EAGAIN) {
-				// Buffer is full, just continue
-			}
-			else if (rc < 0) {
-				if (rc == -EPIPE) {
-					// Underrun occurred, prepare the PCM
-					printf("Audio underrun occurred, recovering...\n");
-					PCM_Prepare(ctx);
-				} else {
-					printf("Audio write error: %s\n", snd_strerror(rc));
-					ctx->isPaused = 1;
-				}
-			}
-			else {
-				// Successfully wrote frames
-				ctx->remainingFrames -= rc;
-				ctx->audio_data += (rc * ctx->header->bitsPerSample / 8 * ctx->header->noOfChannels);
-				// update frames written
-				ctx->framesWritten += rc;
-				if (ctx->remainingFrames <= 0) {
-					ctx->isPlaying = 0;
-				}
-			}
-		}
+		if (!ctx->isPaused && ctx->remainingFrames > 0) { // checking the frames to write 
+			U32 writable_size = (ctx->remainingFrames < ctx->chunk_size) ? ctx->remainingFrames : ctx->chunk_size; 
+			S32 rc = PCM_Write(ctx, writable_size); //buffer is full just continue 
+			if (rc == -EAGAIN) { // Buffer is full, just continue 
+			} 
+			else if (rc < 0) { if (rc == -EPIPE) { // Underrun occurred, prepare the PCM 
+					printf("Audio underrun occurred, recovering...\n"); PCM_Prepare(ctx); } else { printf("Audio write error: %s\n", snd_strerror(rc)); ctx->isPaused = 1; } } else { // Successfully wrote frames 
+				ctx->remainingFrames -= rc; 
+				ctx->audio_data += (rc * ctx->header->bitsPerSample / 8 * ctx->header->noOfChannels); // update frames written 
+				ctx->framesWritten += rc; 
+				if (ctx->remainingFrames <= 0) { ctx->isPlaying = 0; } 
+			} 
+		} 
 		pthread_mutex_unlock(&ctx->mutex);
+		
+		spall_buffer_end(&spall_ctx, &thread_buffer, get_time_in_nanos());
 		usleep(1000);
 	}
+	
+	// Flush and cleanup
+	spall_buffer_flush(&spall_ctx, &thread_buffer);
+	spall_buffer_quit(&spall_ctx, &thread_buffer);
+	free(buffer);
 	return NULL;
 }
 
@@ -222,7 +244,7 @@ CheckValidWavFile(String8 file_path, B32 *send_toast)
 
 void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena, String8 current_directory, Color found_pywal_colors){
 	SetTraceLogLevel(LOG_NONE);
-	SetConfigFlags(FLAG_VSYNC_HINT);
+	//SetConfigFlags(FLAG_VSYNC_HINT);
 	InitWindow(1200, 720, "File Open Dialog");
 	
 	Camera2D camera = { 0 };
@@ -427,10 +449,32 @@ void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena
 	CloseWindow();
 }
 
+
 int main(int argc, char* argv[]) 
 {
+	if (!spall_init_file("hello_world.spall", 1, &spall_ctx)) {
+		printf("Failed to setup spall?\n");
+		return 1;
+	}
+	int buffer_size = 1 * 1024 * 1024;
+	unsigned char *buffer = malloc(buffer_size);
+	spall_buffer = (SpallBuffer){
+		.length = buffer_size,
+		.data = buffer,
+	};
+	if (!spall_buffer_init(&spall_ctx, &spall_buffer)) {
+		printf("Failed to init spall buffer?\n");
+		return 1;
+	}
+	
+	spall_buffer_begin(&spall_ctx, &spall_buffer, 
+										 __FUNCTION__,             // name of your function
+										 sizeof(__FUNCTION__) - 1, // name len minus the null terminator
+										 get_time_in_nanos()      // timestamp in nanoseconds -- start of your timing block
+										 );
+	
 	String8 home_dir;
-	Arena text_arena = arena_commit(10 * 1024 * 1024);
+	Arena text_arena = arena_commit(1024 * 1024 * 1024);
 	home_dir = STRING8(getenv("HOME"));
 	char *pywal_colors = (char*)appendStrings(&text_arena, home_dir, STRING8("/.cache/wal/colors")).str;
 	B8 found_pywal_colors = 0;
@@ -464,7 +508,6 @@ int main(int argc, char* argv[])
 	}
 	
 	// open file
-	String8 file_path = {.str = 0, .size = 0};
 	String8 file_paths[1024] = {0};
 	U32 file_count = 0;
 	String8 current_directory = {0};
@@ -603,7 +646,7 @@ int main(int argc, char* argv[])
 		
 		// no stdout from raylib
 		SetTraceLogLevel(LOG_NONE);
-		SetConfigFlags(FLAG_VSYNC_HINT);
+		//SetConfigFlags(FLAG_VSYNC_HINT);
 		
 		// --------------------------DRAW CYCLE------------------------------
 		InitWindow(1200, 720, "Music Player");
@@ -619,21 +662,26 @@ int main(int argc, char* argv[])
 		U32 screen_width = GetScreenWidth();
 		//U32 screen_height = GetScreenHeight();
 		
+		// Load Album art // TODO(sujith): retreive this dynamically and add a fallback image
+		Image img = LoadImage("/home/sujith/Music/To Pimp A Butterfly/cover.jpg");
+		ImageResize(&img, GetScreenWidth() * 0.1, GetScreenWidth() * 0.1 );
+		
+		Texture2D texture = LoadTextureFromImage(img);
+		
+		UnloadImage(img);
+		
+		
 		while (!WindowShouldClose())
 		{
 			BeginDrawing();
 			
+			DrawFPS(font_size, font_size);
 			Vector2 center = {.x = GetScreenWidth() / 2, .y = GetScreenHeight() / 2};
+			Vector2 component_center = center;
+			component_center.y -=  texture.height;
 			
-			// Load Album art // TODO(sujith): retreive this dynamically and add a fallback image
-			Image img = LoadImage("/home/sujith/Music/To Pimp A Butterfly/cover.jpg");
-			ImageResize(&img, GetScreenWidth() * 0.1, GetScreenWidth() * 0.1 );
-			
-			Texture2D texture = LoadTextureFromImage(img);
-			UnloadImage(img);
-			
-			Rectangle pause_rectangle = {.x = (center.x - 50), 
-				.y = (center.y + texture.height), 
+			Rectangle pause_rectangle = {.x = (component_center.x - 50), 
+				.y = (component_center.y + texture.height + 3 * font_size), 
 				.width = 100, 
 				.height = 40
 			};
@@ -645,24 +693,30 @@ int main(int argc, char* argv[])
 			
 			// pywal or default color
 			Color wal_color = GetColor((found_pywal_colors) ? pywal_background_color_int : 0x6F7587FF);
+			
 			ClearBackground(wal_color);
 			
-			if(file_path.str != 0)
-				DrawText(TextFormat("Current: %s", file_path), 10, 10, 20, DARKGRAY);
-			
 			// Draw Album art
-			DrawTexture(texture, center.x - texture.width / 2, center.y - texture.height / 2, WHITE);
-			
+			DrawTexture(texture, component_center.x - texture.width / 2, component_center.y - texture.height / 2, WHITE);
 			//draw playback position
 			current_pos = get_playback_position(&audCon);
 			formatted_time current_duration = {0};
 			get_formatted_time_from_sec(&current_duration, current_pos);
 			
 			DrawTextEx(ui_font,TextFormat("%02d:%02d / %02d:%02d", current_duration.min,
-																		current_duration.sec, total_duration.min, total_duration.sec), (Vector2){center.x - pause_rectangle.width / 2, center.y + texture.height / 2 + 20}, 20, 0, RED);
-			DrawTextEx(ui_font, album_name ? album_name : "Unknown album", (Vector2){20, 110}, 20, 0, GREEN);
-			DrawTextEx(ui_font, artist_name ? artist_name : "Unknown artist", (Vector2){20, 130}, 20, 0, GREEN);
-			
+																		current_duration.sec, total_duration.min, total_duration.sec), (Vector2){
+									 component_center.x - pause_rectangle.width / 2, component_center.y + texture.height / 2 + 4 * font_size
+								 }, 20, 0, RED);
+			album_name = album_name ? album_name : "Unknown album";
+			Vector2 album_name_length = MeasureTextEx(ui_font, album_name, font_size, 0);
+			DrawTextEx(ui_font, album_name, (Vector2){
+									 component_center.x - album_name_length.x / 2 + font_size, component_center.y + texture.width / 1.5
+								 }, 20, 0, GREEN);
+			artist_name = artist_name ? artist_name : "Unknown artist";
+			Vector2 artist_name_length = MeasureTextEx(ui_font, artist_name, font_size, 0);
+			DrawTextEx(ui_font, artist_name, (Vector2){
+									 component_center.x - artist_name_length.x / 2 + font_size, component_center.y + texture.width
+								 }, 20, 0, GREEN);
 			// playlist
 			for(U32 i = currently_playing; i < file_count; i++)
 			{
@@ -671,6 +725,7 @@ int main(int argc, char* argv[])
 			
 			//Vector2 pause_string_size = MeasureTextEx(ui_font, (char*)pause_button.title.str, font_size, 0); 
 			DrawButtonWithFont(&pause_button, BLACK, ui_font, font_size, 12);
+			
 			
 			U32 elapsed = get_playback_position(&audCon);
 			U32 total   = audCon.totalFrames / audCon.header->sampleFreq;
@@ -681,8 +736,10 @@ int main(int argc, char* argv[])
 				break;
 			}
 			
+			
+			
+			// playback_position
 			Vector2 mousePosition = GetMousePosition();
-			// TODO(sujith):  can we do anything else, dont want a function pointer
 			B8 space_pressed = IsKeyPressed(KEY_SPACE);
 			if(IsMouseButtonPressed(0) || space_pressed)
 			{
@@ -691,6 +748,7 @@ int main(int argc, char* argv[])
 					pause_button_on_click(&pause_button, &pause_button_clicked, play_pause);
 				}
 			}
+			// alternate is mouse right or space
 			// pause the playback
 			if (pause_button_clicked == 1)
 			{
@@ -705,9 +763,11 @@ int main(int argc, char* argv[])
 			// resume the playback
 			if (pause_button_clicked == 0) 
 			{
-				pthread_mutex_lock(&audCon.mutex);
-				PCMPause(pcm_handle, 0);
-				audCon.isPaused = 0;
+				if (audCon.isPaused == 1){
+					pthread_mutex_lock(&audCon.mutex);
+					PCMPause(pcm_handle, 0);
+					audCon.isPaused = 0;
+				}
 				pthread_mutex_unlock(&audCon.mutex);
 			}
 			// quit
@@ -715,6 +775,8 @@ int main(int argc, char* argv[])
 			{
 				break;
 			} 
+			
+			// event handling
 			EndDrawing();
 		}
 		
@@ -728,6 +790,12 @@ int main(int argc, char* argv[])
 		fclose(file);
 		CloseWindow();
 	}
+	
+	spall_buffer_quit(&spall_ctx, &spall_buffer);
+	// Freeing our buffer's memory now that spall_buffer_quit has flushed it for us.
+	free(buffer);
+	spall_quit(&spall_ctx);
+	
 	arena_destroy(&text_arena);
 	return 0;
 }

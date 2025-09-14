@@ -1,5 +1,6 @@
 #define STRING8(s) (String8){.str = (U8*)s, .size = strlen(s)}
 
+//#include <stdio.h>
 //static void 
 //println(String8 *string){
 //if(string->str == 0) return;
