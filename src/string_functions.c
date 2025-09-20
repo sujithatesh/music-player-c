@@ -13,14 +13,33 @@
 //return;
 //}
 
-//static B8 compareStrings(String8 string1, String8 string2){
-//if(string1.size != string2.size) return 0;
-//for(int i = 0; i < string1.size; i++){
-//}
-//return 1;
-//}
+static B8 compareStrings(String8 string1, String8 string2) {
+	if(string1.size != string2.size) return 0;
+	
+	for(U32 i = 0; i < string1.size; i++) {
+		if(string1.str[i] != string2.str[i]) {
+			return 0;
+		}
+	}
+	
+	return 1;
+}
 
-String8 appendStrings(Arena *arena, String8 s1, String8 s2){
+String8 
+duplicateString(Arena* arena, String8 str)
+{
+	String8 str2 = {0};
+	str2.str = arena_alloc(arena, str.size);
+	for(U32 i = 0; i < str.size; i++)
+	{
+		str2.str[i] = str.str[i];
+	}
+	str2.size = str.size;
+	return str2;
+}
+
+String8 
+appendStrings(Arena *arena, String8 s1, String8 s2){
 	String8* appended_string = arena_alloc(arena, s1.size + s2.size + 1);
 	appended_string->str = s1.str;
 	for(U32 i = 0; i <s2.size; i++){

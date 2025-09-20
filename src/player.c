@@ -4,6 +4,7 @@
 
 #include "raylib.h"
 #include "spall.h"
+#include "font_data.h"
 
 #include "base_basic_types.h"
 #include "utils.c"
@@ -15,6 +16,7 @@
 
 #define FONT_SIZE 23
 #define SPALL_BUFFER_SIZE 10 * 1024 * 1024
+#define TABLE_SIZE 101
 
 #define SPALL_BEGIN(event_name) \
 spall_buffer_begin(&spall_ctx, &spall_buffer, event_name, sizeof(event_name)-1, get_time_in_nanos())
@@ -43,18 +45,67 @@ typedef struct{
 	String8 title;
 }Button;
 
+typedef struct Entry Entry;
 
-typedef struct
+struct Entry
 {
 	String8 key;
-	U32 *array;
-} ArrayHashMap;
+	U32 *values;
+	U32 value_count;
+	U32 capacity; 
+	Entry *next; 
+};
+
+typedef struct {
+	Entry* buckets[TABLE_SIZE];
+} StringArrayHashMap;
+
+// djb2 string hash function
+U64 hash(String8 *str) {
+	U64 hash = 5381;
+	for (U32 i = 0; i < str->size; i++) {
+    U32 c = str->str[i];
+    hash = ((hash << 5) + hash) + c;
+	}
+	return hash % TABLE_SIZE;
+}
+
+void insert(Arena* arena, StringArrayHashMap* map, String8* key, size_t capacity) {
+	U64 h = hash(key);
+	Entry *entry = arena_alloc(arena, sizeof(Entry));
+	entry->key = duplicateString(arena, *key);
+	entry->values = arena_alloc(arena, capacity * sizeof(U32));
+	entry->value_count = 0;
+	entry->capacity = capacity;
+	entry->next = map->buckets[h];
+	map->buckets[h] = entry;
+}
+
+B32 
+contains(StringArrayHashMap *map, String8 *key) {
+	U64 h = hash(key);
+	for (Entry *e = map->buckets[h]; e; e = e->next) {
+		if (compareStrings(e->key, *key) == 0) {
+			return 1; 
+		}
+	}
+	return 0;
+}
 
 
-uint64_t get_time_in_nanos(void) {
+Entry*
+get(StringArrayHashMap *map, String8 *key) {
+	U64 h = hash(key);
+	for (Entry *e = map->buckets[h]; e; e = e->next) {
+		if (compareStrings(e->key, *key) == 0) return e;
+	}
+	return NULL;
+}
+
+U64 get_time_in_nanos(void) {
 	struct timespec spec;
 	clock_gettime(CLOCK_MONOTONIC, &spec);
-	uint64_t ts = ((uint64_t)spec.tv_sec * 1000000000ull) + (uint64_t)spec.tv_nsec;
+	U64 ts = ((U64)spec.tv_sec * 1000000000ull) + (U64)spec.tv_nsec;
 	return ts;
 }
 
@@ -244,7 +295,7 @@ CheckValidWavFile(String8 file_path, B32 *send_toast)
 
 void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena, String8 current_directory, Color found_pywal_colors){
 	SetTraceLogLevel(LOG_NONE);
-	//SetConfigFlags(FLAG_VSYNC_HINT);
+	SetConfigFlags(FLAG_VSYNC_HINT);
 	InitWindow(1200, 720, "File Open Dialog");
 	
 	Camera2D camera = { 0 };
@@ -259,16 +310,17 @@ void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena
 	String8 new_directory      = {0};
 	U32 hovering_button        = 0;
 	U32 index                  = 0;
-	U32 selected_buttons[1024] = {0};
+	U32* selected_buttons      = 0;
 	U32 selected_button_count  = 0;
 	B32 multiple_selected      = 0;
 	B32 send_toast             = 0;
 	S32 timer                  = 2000;
 	
 	LoadDirectory(text_arena, current_directory, entries, &entry_count, 0);
-	Font ui_font= LoadFontEx("../assets/fonts/Helvetica.ttf", 35, NULL, 100);
+	Font ui_font = LoadFontFromMemory(".ttf", Helvetica_ttf, Helvetica_ttf_len, 35, NULL, 100);
 	Vector2 size = MeasureTextEx(ui_font, "Hello", FONT_SIZE, 0);
 	U32 font_size = size.y;
+	StringArrayHashMap all_buttons;
 	
 	while(!WindowShouldClose())
 	{
@@ -335,8 +387,27 @@ void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena
 		
 		// event loop
 		if((IsKeyPressed(KEY_M)) || IsMouseButtonPressed(1)) {
-			String8 current_file = entries[hovering_button]->full_path;
+			String8 current_file = entries[hovering_button]->full_path;;
 			file_type file_extension = CheckValidWavFile(current_file, &send_toast);
+			
+			Entry* e = get(&all_buttons, &current_directory);
+			
+			if (e) {
+				selected_buttons = e->values;
+			} else {
+				// Key doesn't exist → create a new entry
+				insert(text_arena, &all_buttons, &current_directory, 1024);
+				
+				// Get the newly inserted entry
+				e = get(&all_buttons, &current_directory);
+				if (e) {
+					selected_buttons = e->values;
+				} else {
+					// This should never happen, but just in case
+					selected_buttons = NULL;
+					printf("Error: failed to insert or retrieve key\n");
+				}
+			}
 			
 			if(file_extension != WAV_FILE)
 			{
@@ -346,7 +417,7 @@ void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena
 			{
 				if(!entries[hovering_button]->is_directory){
 					file_paths[selected_button_count] = current_file; 
-					selected_buttons[selected_button_count] = hovering_button; // not index
+					selected_buttons[selected_button_count] = hovering_button;
 					*file_count = ++selected_button_count;
 					multiple_selected = 1;
 				}
@@ -452,7 +523,7 @@ void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena
 
 int main(int argc, char* argv[]) 
 {
-	if (!spall_init_file("hello_world.spall", 1, &spall_ctx)) {
+	if (!spall_init_file("music_player.spall", 1, &spall_ctx)) {
 		printf("Failed to setup spall?\n");
 		return 1;
 	}
@@ -646,17 +717,16 @@ int main(int argc, char* argv[])
 		
 		// no stdout from raylib
 		SetTraceLogLevel(LOG_NONE);
-		//SetConfigFlags(FLAG_VSYNC_HINT);
+		SetConfigFlags(FLAG_VSYNC_HINT);
 		
 		// --------------------------DRAW CYCLE------------------------------
 		InitWindow(1200, 720, "Music Player");
-		
 		
 		// pause unpause state
 		B8 pause_button_clicked = 0;
 		String8 play_pause[2] = {STRING8("Play"), STRING8("Pause")};
 		
-		Font ui_font= LoadFontEx("../assets/fonts/Helvetica.ttf", 35, NULL, 100);
+		Font ui_font = LoadFontFromMemory(".ttf", Helvetica_ttf, Helvetica_ttf_len, 35, NULL, 100);
 		Vector2 size = MeasureTextEx(ui_font, "Hello", FONT_SIZE, 0);
 		U32 font_size = size.y;
 		U32 screen_width = GetScreenWidth();
@@ -669,7 +739,19 @@ int main(int argc, char* argv[])
 		Texture2D texture = LoadTextureFromImage(img);
 		
 		UnloadImage(img);
+		Vector2 center = {.x = GetScreenWidth() / 2, .y = GetScreenHeight() / 2};
 		
+		Rectangle pause_rectangle = { 
+			.x = center.x,
+			.y = center.y,
+			.width = 100, 
+			.height = 40
+		};
+		
+		Button pause_button = {
+			.rec = pause_rectangle, .color = RED, 
+			.title = play_pause[1], 
+		};
 		
 		while (!WindowShouldClose())
 		{
@@ -680,16 +762,9 @@ int main(int argc, char* argv[])
 			Vector2 component_center = center;
 			component_center.y -=  texture.height;
 			
-			Rectangle pause_rectangle = {.x = (component_center.x - 50), 
-				.y = (component_center.y + texture.height + 3 * font_size), 
-				.width = 100, 
-				.height = 40
-			};
-			
-			Button pause_button = {
-				.rec = pause_rectangle, .color = RED, 
-				.title = play_pause[1], 
-			};
+			pause_rectangle.x = (component_center.x - 50);
+			pause_rectangle.y = (component_center.y + texture.height + 3 * font_size);
+			pause_button.rec = pause_rectangle;
 			
 			// pywal or default color
 			Color wal_color = GetColor((found_pywal_colors) ? pywal_background_color_int : 0x6F7587FF);
@@ -722,11 +797,7 @@ int main(int argc, char* argv[])
 			{
 				DrawTextEx(ui_font, (char*)file_paths[i].str, (Vector2){screen_width - 20 * font_size, font_size * (i - currently_playing)}, font_size / 4 * 3, 0, GREEN);
 			}
-			
-			//Vector2 pause_string_size = MeasureTextEx(ui_font, (char*)pause_button.title.str, font_size, 0); 
 			DrawButtonWithFont(&pause_button, BLACK, ui_font, font_size, 12);
-			
-			
 			U32 elapsed = get_playback_position(&audCon);
 			U32 total   = audCon.totalFrames / audCon.header->sampleFreq;
 			
@@ -735,8 +806,6 @@ int main(int argc, char* argv[])
 				PCMDrain(pcm_handle);
 				break;
 			}
-			
-			
 			
 			// playback_position
 			Vector2 mousePosition = GetMousePosition();
