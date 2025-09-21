@@ -111,7 +111,11 @@ U64 get_time_in_nanos(void) {
 
 B8 button_is_hovering(Button *button, F32 mouse_x, F32 mouse_y)
 {
-	if(mouse_x >= button->rec.x && mouse_x < button->rec.x + button->rec.width && mouse_y >= button->rec.y && mouse_y < button->rec.y + button->rec.height){
+	if(mouse_x >= button->rec.x 
+		 && mouse_x < button->rec.x + button->rec.width 
+		 && mouse_y >= button->rec.y 
+		 && mouse_y < button->rec.y + button->rec.height)
+	{
 		return 1;
 	}
 	
@@ -124,14 +128,16 @@ void pause_button_on_click(Button *button, B8* pause_button_clicked, String8 pla
 		*pause_button_clicked = 1;
 		button->title = play_pause[0];
 	}
-	else if(*pause_button_clicked == 1){
+	else if(*pause_button_clicked == 1)
+	{
 		*pause_button_clicked = 0;
 		button->title = play_pause[1];
 	}
 }
 
 // seconds to min and sec
-void get_formatted_time_from_sec(formatted_time *for_time, U32 sec){
+void get_formatted_time_from_sec(formatted_time *for_time, U32 sec)
+{
 	for_time->sec = sec % 60;
 	U32 total_minutes = sec / 60;
 	for_time->min = total_minutes % 60;
@@ -145,7 +151,8 @@ F64 get_track_duration(AudioContext *ctx) {
 
 // NOTE(sujith): this needs to be abstracted away
 // get current time in seconds
-F64 get_current_time(void){
+F64 get_current_time(void)
+{
 	mp_time current_time;
 	clock_gettime(CLOCK_MONOTONIC, &current_time);
 	return current_time.tv_sec + current_time.tv_nsec / 1000000000.0;
@@ -199,7 +206,8 @@ void* audio_thread(void* arg) {
 
 void getTagDetails(U8* value, String8 *current_byte, char **tag_detail, U8 byte_padding_u32)
 {
-	while(true){
+	while(true)
+	{
 		if(!compareValueStringSlice(value, *current_byte, 0, 4))
 		{
 			current_byte->str += byte_padding_u32;
@@ -211,10 +219,15 @@ void getTagDetails(U8* value, String8 *current_byte, char **tag_detail, U8 byte_
 	}
 }
 
-void DrawButtonWithFont(Button *clickable_rec, Color font_color, Font font, U32 font_size, U32 text_offset){
+void DrawButtonWithFont(Button *clickable_rec, Color font_color, Font font, U32 font_size, U32 text_offset, B32 override_offset)
+{
+	Vector2 center = (Vector2){clickable_rec->rec.width / 2, clickable_rec->rec.height / 2};
+	if(!override_offset)
+	{
+		text_offset = (U32)center.x / 2 - clickable_rec->title.size / 2; 
+	}
 	DrawRectangle(clickable_rec->rec.x, clickable_rec->rec.y, clickable_rec->rec.width + 2, clickable_rec->rec.height, clickable_rec->color);
 	DrawTextEx(font, (char*)clickable_rec->title.str, (Vector2){clickable_rec->rec.x + text_offset, clickable_rec->rec.y + clickable_rec->rec.height / 2  - font_size / 2}, font_size, 0, font_color);
-	return;
 }
 
 void DrawTextWithOutlineAndFont(Rectangle rec, Color font_color,Color outline_color, U32 margin, String8 text, Font font, U32 font_size)
@@ -293,7 +306,8 @@ CheckValidWavFile(String8 file_path, B32 *send_toast)
 	return file_extension;
 }
 
-void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena, String8 current_directory, Color found_pywal_colors){
+void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena, String8 current_directory, Color found_pywal_colors)
+{
 	SetTraceLogLevel(LOG_NONE);
 	SetConfigFlags(FLAG_VSYNC_HINT);
 	InitWindow(1200, 720, "File Open Dialog");
@@ -358,7 +372,7 @@ void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena
 		// Draw loop
 		for(index = 0; index < entry_count; index++)
 		{
-			DrawButtonWithFont(&buttons[index], RED, ui_font,font_size, 2 *font_size);
+			DrawButtonWithFont(&buttons[index], RED, ui_font, font_size, 2 * font_size, true);
 			if(button_is_hovering(&buttons[index], mouseWorld.x, mouseWorld.y) && mouse_moved){
 				hovering_button = index;
 			}
@@ -386,23 +400,30 @@ void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena
 		}
 		
 		// event loop
-		if((IsKeyPressed(KEY_M)) || IsMouseButtonPressed(1)) {
+		if((IsKeyPressed(KEY_M)) || IsMouseButtonPressed(1))
+		{
 			String8 current_file = entries[hovering_button]->full_path;;
 			file_type file_extension = CheckValidWavFile(current_file, &send_toast);
 			
 			Entry* e = get(&all_buttons, &current_directory);
 			
-			if (e) {
+			if(e)
+			{
 				selected_buttons = e->values;
-			} else {
+			}
+			else
+			{
 				// Key doesn't exist → create a new entry
 				insert(text_arena, &all_buttons, &current_directory, 1024);
 				
 				// Get the newly inserted entry
 				e = get(&all_buttons, &current_directory);
-				if (e) {
+				if(e)
+				{
 					selected_buttons = e->values;
-				} else {
+				}
+				else
+				{
 					// This should never happen, but just in case
 					selected_buttons = NULL;
 					printf("Error: failed to insert or retrieve key\n");
@@ -415,7 +436,8 @@ void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena
 			}
 			else
 			{
-				if(!entries[hovering_button]->is_directory){
+				if(!entries[hovering_button]->is_directory)
+				{
 					file_paths[selected_button_count] = current_file; 
 					selected_buttons[selected_button_count] = hovering_button;
 					*file_count = ++selected_button_count;
@@ -426,8 +448,10 @@ void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena
 		
 		if(IsMouseButtonPressed(0) || IsKeyPressed(KEY_ENTER))
 		{
-			if(entries[hovering_button]->is_directory){
-				if(hovering_button == 0){
+			if(entries[hovering_button]->is_directory)
+			{
+				if(hovering_button == 0)
+				{
 					new_directory = PopPath(text_arena, current_directory);
 				} else {
 					new_directory = appendStrings(text_arena, current_directory,
@@ -529,7 +553,8 @@ int main(int argc, char* argv[])
 	}
 	int buffer_size = 1 * 1024 * 1024;
 	unsigned char *buffer = malloc(buffer_size);
-	spall_buffer = (SpallBuffer){
+	spall_buffer = (SpallBuffer)
+	{
 		.length = buffer_size,
 		.data = buffer,
 	};
@@ -571,6 +596,7 @@ int main(int argc, char* argv[])
 		fclose(pywal);
 	}
 	else{
+		return -1;
 	}
 	
 	// open file
@@ -578,9 +604,9 @@ int main(int argc, char* argv[])
 	U32 file_count = 0;
 	String8 current_directory = {0};
 	
-	if(argc == 1){
+	if(argc == 1)
+	{
 		current_directory.str = arena_alloc(&text_arena, 1024);
-		
 		GetCurrentDirectory(&current_directory);
 		DrawFileOpenDialog(file_paths, &file_count, &text_arena, current_directory, GetColor((found_pywal_colors) ? pywal_background_color_int : 0x6F7587FF));
 	}
@@ -619,7 +645,8 @@ int main(int argc, char* argv[])
 		
 		// file descriptor
 		U32 fd = fileno(file);
-		if(file_extension == WAV_FILE){
+		if(file_extension == WAV_FILE)
+		{
 			// set the file to 44 <-- NOTE(sujith): this needs to change
 			fseek(file, 44, SEEK_SET);
 		}
@@ -642,7 +669,8 @@ int main(int argc, char* argv[])
 		
 		// init audio_data
 		unsigned char *audio_data = 0;
-		if(file_extension == WAV_FILE){
+		if(file_extension == WAV_FILE)
+		{
 			// TODO(sujith): need to calculate header offset
 			// init audio_data
 			audio_data = mapped_data + 44;
@@ -661,7 +689,8 @@ int main(int argc, char* argv[])
 		char* artist_name = 0;
 		char* album_name = 0;
 		
-		if(compare){
+		if(compare)
+		{
 			second_string_byte.str = (first_string_byte.str + byte_padding_u32);
 			second_string_byte.size = 8;
 			second_compare = compareValueStringSlice((U8*)"INFO", second_string_byte, 0, 4);
@@ -727,7 +756,14 @@ int main(int argc, char* argv[])
 		U32 screen_width = GetScreenWidth();
 		//U32 screen_height = GetScreenHeight();
 		
-		// Load Album art // TODO(sujith): retreive this dynamically and add a fallback image
+		// Load Album art 
+		/*TODO(sujith): retreive this dynamically and add a fallback image
+	 The way I could think of doing this is getting the path of the current file which we are playing
+and go to that directory in there we need to search for file with 
+i. the name as the album name.
+ii.the name as the file name.
+ iii. any file with .jpg, .jpeg, .png
+*/
 		Image img = LoadImage("/home/sujith/Music/To Pimp A Butterfly/cover.jpg");
 		ImageResize(&img, GetScreenWidth() * 0.1, GetScreenWidth() * 0.1 );
 		
@@ -758,7 +794,7 @@ int main(int argc, char* argv[])
 			component_center.y -=  texture.height;
 			
 			pause_rectangle.x = (component_center.x - 50);
-			pause_rectangle.y = (component_center.y + texture.height + 3 * font_size);
+			pause_rectangle.y = (component_center.y + texture.height + 4 * font_size);
 			pause_button.rec = pause_rectangle;
 			
 			// pywal or default color
@@ -766,33 +802,43 @@ int main(int argc, char* argv[])
 			
 			ClearBackground(wal_color);
 			
+			// Draw
+			Vector2 time_coords = (Vector2){component_center.x - pause_rectangle.width / 2, component_center.y + texture.height / 2 + 4 * font_size};
+			Vector2 line_coords = (Vector2){time_coords.x - 10 * font_size, time_coords.y + 2 * font_size};
+			
 			// Draw Album art
 			DrawTexture(texture, component_center.x - texture.width / 2, component_center.y - texture.height / 2, WHITE);
-			//draw playback position
-			current_pos = get_playback_position(&audCon);
-			formatted_time current_duration = {0};
-			get_formatted_time_from_sec(&current_duration, current_pos);
 			
-			DrawTextEx(ui_font,TextFormat("%02d:%02d / %02d:%02d", current_duration.min,
-																		current_duration.sec, total_duration.min, total_duration.sec), (Vector2){
-									 component_center.x - pause_rectangle.width / 2, component_center.y + texture.height / 2 + 4 * font_size
-								 }, 20, 0, RED);
+			// Draw Album name
 			album_name = album_name ? album_name : "Unknown album";
 			Vector2 album_name_length = MeasureTextEx(ui_font, album_name, font_size, 0);
 			DrawTextEx(ui_font, album_name, (Vector2){
 									 component_center.x - album_name_length.x / 2 + font_size, component_center.y + texture.width / 1.5
 								 }, 20, 0, GREEN);
+			
+			// Draw Artist name
 			artist_name = artist_name ? artist_name : "Unknown artist";
 			Vector2 artist_name_length = MeasureTextEx(ui_font, artist_name, font_size, 0);
 			DrawTextEx(ui_font, artist_name, (Vector2){
 									 component_center.x - artist_name_length.x / 2 + font_size, component_center.y + texture.width
 								 }, 20, 0, GREEN);
-			// playlist
-			for(U32 i = currently_playing; i < file_count; i++)
-			{
-				DrawTextEx(ui_font, (char*)file_paths[i].str, (Vector2){screen_width - 20 * font_size, font_size * (i - currently_playing)}, font_size / 4 * 3, 0, GREEN);
-			}
-			DrawButtonWithFont(&pause_button, BLACK, ui_font, font_size, 12);
+			
+			// Draw playback position
+			current_pos = get_playback_position(&audCon);
+			formatted_time current_duration = {0};
+			get_formatted_time_from_sec(&current_duration, current_pos);
+			DrawTextEx(ui_font,TextFormat("%02d:%02d / %02d:%02d", current_duration.min,
+																		current_duration.sec, total_duration.min, total_duration.sec), (Vector2){
+									 time_coords.x, time_coords.y
+								 }, 20, 0, RED);
+			
+			// Draw seeking line
+			DrawLine(line_coords.x, line_coords.y, line_coords.x + 25 * font_size, line_coords.y, RED);
+			float circle_x = line_coords.x + (25.0f * font_size) * ((float)current_pos / (float)track_duration);
+			DrawCircle((int)circle_x, line_coords.y, 5, RED);
+			
+			// Draw Pause Play button
+			DrawButtonWithFont(&pause_button, BLACK, ui_font, font_size, 0, false);
 			U32 elapsed = get_playback_position(&audCon);
 			U32 total   = audCon.totalFrames / audCon.header->sampleFreq;
 			
@@ -800,6 +846,12 @@ int main(int argc, char* argv[])
 			{
 				PCMDrain(pcm_handle);
 				break;
+			}
+			
+			// Draw playlist
+			for(U32 i = currently_playing; i < file_count; i++)
+			{
+				DrawTextEx(ui_font, (char*)file_paths[i].str, (Vector2){screen_width - 20 * font_size, font_size * (i - currently_playing)}, font_size / 4 * 3, 0, GREEN);
 			}
 			
 			// playback_position
@@ -827,7 +879,8 @@ int main(int argc, char* argv[])
 			// resume the playback
 			if (pause_button_clicked == 0) 
 			{
-				if (audCon.isPaused == 1){
+				if (audCon.isPaused == 1)
+				{
 					pthread_mutex_lock(&audCon.mutex);
 					PCMPause(pcm_handle, 0);
 					audCon.isPaused = 0;
