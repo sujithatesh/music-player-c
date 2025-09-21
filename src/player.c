@@ -33,6 +33,10 @@ typedef enum {
 	SUCESS
 } MessageType;
 
+typedef enum {
+	NOT_HOVERING = -1
+} DummyValue;
+
 typedef struct {
 	U32 hours;
 	U8 min;
@@ -226,14 +230,21 @@ void DrawButtonWithFont(Button *clickable_rec, Color font_color, Font font, U32 
 	{
 		text_offset = (U32)center.x / 2 - clickable_rec->title.size / 2; 
 	}
-	DrawRectangle(clickable_rec->rec.x, clickable_rec->rec.y, clickable_rec->rec.width + 2, clickable_rec->rec.height, clickable_rec->color);
-	DrawTextEx(font, (char*)clickable_rec->title.str, (Vector2){clickable_rec->rec.x + text_offset, clickable_rec->rec.y + clickable_rec->rec.height / 2  - font_size / 2}, font_size, 0, font_color);
+	DrawRectangle(clickable_rec->rec.x,
+								clickable_rec->rec.y, clickable_rec->rec.width + 2,
+								clickable_rec->rec.height, clickable_rec->color);
+	DrawTextEx(font, (char*)clickable_rec->title.str,
+						 (Vector2){clickable_rec->rec.x + text_offset, clickable_rec->rec.y + clickable_rec->rec.height / 2  - font_size / 2},
+						 font_size, 0, font_color);
 }
 
 void DrawTextWithOutlineAndFont(Rectangle rec, Color font_color,Color outline_color, U32 margin, String8 text, Font font, U32 font_size)
 {
-	DrawRectangleLines(rec.x + margin, rec.y, rec.width - margin, rec.height, outline_color);
-	DrawTextEx(font, (char*)text.str, (Vector2){rec.x + margin, rec.y + rec.height / 2  - font_size / 2}, font_size, 0, font_color);
+	DrawRectangleLines(rec.x + margin,
+										 rec.y, rec.width - margin, rec.height, outline_color);
+	DrawTextEx(font, (char*)text.str,
+						 (Vector2){rec.x + margin, rec.y + rec.height / 2  - font_size / 2},
+						 font_size, 0, font_color);
 	return;
 }
 
@@ -306,7 +317,8 @@ CheckValidWavFile(String8 file_path, B32 *send_toast)
 	return file_extension;
 }
 
-void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena, String8 current_directory, Color found_pywal_colors)
+void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena,
+												String8 current_directory, Color found_pywal_colors)
 {
 	SetTraceLogLevel(LOG_NONE);
 	SetConfigFlags(FLAG_VSYNC_HINT);
@@ -322,7 +334,7 @@ void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena
 	U32 entry_count            = 0;
 	B32 reload_dir             = 0;
 	String8 new_directory      = {0};
-	U32 hovering_button        = 0;
+	U32 hovering_button_index  = 0;
 	U32 index                  = 0;
 	U32* selected_buttons      = 0;
 	U32 selected_button_count  = 0;
@@ -369,16 +381,30 @@ void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena
 			mouse_moved = 1;
 		}
 		
+		/*NOTE(sujith): here if hovering_button_index is >= entry_count when opening a directory
+	 and that directory happens to have entry count less than hovering_button it will crash
+ as we are using it as an array index, it would be out of bounds, so we are assigining it 
+a dummy value of not hovering
+*/
+		if(hovering_button_index >= entry_count)
+		{
+			hovering_button_index = NOT_HOVERING;
+		}
+		
 		// Draw loop
 		for(index = 0; index < entry_count; index++)
 		{
 			DrawButtonWithFont(&buttons[index], RED, ui_font, font_size, 2 * font_size, true);
 			if(button_is_hovering(&buttons[index], mouseWorld.x, mouseWorld.y) && mouse_moved){
-				hovering_button = index;
+				hovering_button_index = index;
 			}
 		}
 		
-		DrawTextWithOutlineAndFont(buttons[hovering_button].rec, GREEN, RED, 2 * font_size, buttons[hovering_button].title, ui_font, font_size);
+		if(hovering_button_index != -1)
+		{
+			DrawTextWithOutlineAndFont(buttons[hovering_button_index].rec, GREEN,
+																 RED, 2 * font_size, buttons[hovering_button_index].title, ui_font, font_size);
+		}
 		
 		if(timer > 0 && send_toast)
 		{
@@ -396,13 +422,14 @@ void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena
 		
 		for(U32 i = 0; i < selected_button_count; i++)
 		{
-			DrawTextWithOutlineAndFont(buttons[selected_buttons[i]].rec, RED, WHITE, font_size, buttons[selected_buttons[i]].title, ui_font, font_size);
+			DrawTextWithOutlineAndFont(buttons[selected_buttons[i]].rec, RED, WHITE, font_size,
+																 buttons[selected_buttons[i]].title, ui_font, font_size);
 		}
 		
 		// event loop
-		if((IsKeyPressed(KEY_M)) || IsMouseButtonPressed(1))
+		if(((IsKeyPressed(KEY_M)) || IsMouseButtonPressed(1)) && hovering_button_index != NOT_HOVERING)
 		{
-			String8 current_file = entries[hovering_button]->full_path;;
+			String8 current_file = entries[hovering_button_index]->full_path;;
 			file_type file_extension = CheckValidWavFile(current_file, &send_toast);
 			
 			Entry* e = get(&all_buttons, &current_directory);
@@ -436,65 +463,69 @@ void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena
 			}
 			else
 			{
-				if(!entries[hovering_button]->is_directory)
+				if(!entries[hovering_button_index]->is_directory)
 				{
 					file_paths[selected_button_count] = current_file; 
-					selected_buttons[selected_button_count] = hovering_button;
+					selected_buttons[selected_button_count] = hovering_button_index;
 					*file_count = ++selected_button_count;
 					multiple_selected = 1;
 				}
 			}
 		}
 		
-		if(IsMouseButtonPressed(0) || IsKeyPressed(KEY_ENTER))
+		if((IsMouseButtonPressed(0) || IsKeyPressed(KEY_ENTER)) && hovering_button_index != NOT_HOVERING)
 		{
-			if(entries[hovering_button]->is_directory)
+			if(hovering_button_index != NOT_HOVERING)
 			{
-				if(hovering_button == 0)
+				if(entries[hovering_button_index]->is_directory)
 				{
-					new_directory = PopPath(text_arena, current_directory);
-				} else {
-					new_directory = appendStrings(text_arena, current_directory,
-																				(String8){.str=(U8*)"/", .size = 1});
-					new_directory = appendStrings(text_arena, new_directory,
-																				entries[hovering_button]->name);
-				}
-				reload_dir = 1;
-			}
-			else {
-				String8 current_file = entries[hovering_button]->full_path;
-				file_type file_extension = CheckValidWavFile(current_file, &send_toast);
-				
-				if(file_extension != WAV_FILE)
-				{
-					send_toast = 1;
-				}
-				else 
-				{
-					if(multiple_selected != 1) {
-						file_paths[selected_button_count] = entries[hovering_button]->full_path;
-						*file_count = ++selected_button_count;
+					if(hovering_button_index == 0)
+					{
+						new_directory = PopPath(text_arena, current_directory);
+					} else {
+						new_directory = appendStrings(text_arena, current_directory,
+																					(String8){.str=(U8*)"/", .size = 1});
+						new_directory = appendStrings(text_arena, new_directory,
+																					entries[hovering_button_index]->name);
 					}
-					goto close_modal;
+					reload_dir = 1;
+					//hovering_button_index = 0;
+				}
+				else {
+					String8 current_file = entries[hovering_button_index]->full_path;
+					file_type file_extension = CheckValidWavFile(current_file, &send_toast);
+					
+					if(file_extension != WAV_FILE)
+					{
+						send_toast = 1;
+					}
+					else 
+					{
+						if(multiple_selected != 1) {
+							file_paths[selected_button_count] = entries[hovering_button_index]->full_path;
+							*file_count = ++selected_button_count;
+						}
+						goto close_modal;
+					}
 				}
 			}
 		}
 		
 		if(IsKeyPressed(KEY_DOWN)) {
-			if(hovering_button >= entry_count - 1) 
-				hovering_button = entry_count - 1;
+			if(hovering_button_index >= entry_count - 1) 
+				hovering_button_index = entry_count - 1;
 			else {
-				hovering_button += 1;
+				hovering_button_index += 1;
 			}
 		}
 		
 		if(IsKeyPressed(KEY_UP)) 
 		{
-			if(hovering_button <= 0) 
-				hovering_button = 0;
+			if(hovering_button_index <= 0) 
+				hovering_button_index = 0;
 			else 
 			{
-				hovering_button -= 1;
+				hovering_button_index -= 1;
 			}
 		}
 		
@@ -807,28 +838,35 @@ ii.the name as the file name.
 			Vector2 line_coords = (Vector2){time_coords.x - 10 * font_size, time_coords.y + 2 * font_size};
 			
 			// Draw Album art
-			DrawTexture(texture, component_center.x - texture.width / 2, component_center.y - texture.height / 2, WHITE);
+			DrawTexture(texture, component_center.x - texture.width / 2,
+									component_center.y - texture.height / 2, WHITE);
 			
 			// Draw Album name
 			album_name = album_name ? album_name : "Unknown album";
 			Vector2 album_name_length = MeasureTextEx(ui_font, album_name, font_size, 0);
-			DrawTextEx(ui_font, album_name, (Vector2){
-									 component_center.x - album_name_length.x / 2 + font_size, component_center.y + texture.width / 1.5
+			DrawTextEx(ui_font, album_name,
+								 (Vector2){
+									 component_center.x - album_name_length.x / 2 + font_size,
+									 component_center.y + texture.width / 1.5
 								 }, 20, 0, GREEN);
 			
 			// Draw Artist name
 			artist_name = artist_name ? artist_name : "Unknown artist";
 			Vector2 artist_name_length = MeasureTextEx(ui_font, artist_name, font_size, 0);
-			DrawTextEx(ui_font, artist_name, (Vector2){
-									 component_center.x - artist_name_length.x / 2 + font_size, component_center.y + texture.width
+			DrawTextEx(ui_font, artist_name, 
+								 (Vector2){
+									 component_center.x - artist_name_length.x / 2 + font_size,
+									 component_center.y + texture.width
 								 }, 20, 0, GREEN);
 			
 			// Draw playback position
 			current_pos = get_playback_position(&audCon);
 			formatted_time current_duration = {0};
 			get_formatted_time_from_sec(&current_duration, current_pos);
-			DrawTextEx(ui_font,TextFormat("%02d:%02d / %02d:%02d", current_duration.min,
-																		current_duration.sec, total_duration.min, total_duration.sec), (Vector2){
+			DrawTextEx(ui_font,
+								 TextFormat("%02d:%02d / %02d:%02d", current_duration.min,
+														current_duration.sec, total_duration.min, total_duration.sec),
+								 (Vector2){
 									 time_coords.x, time_coords.y
 								 }, 20, 0, RED);
 			
@@ -892,8 +930,6 @@ ii.the name as the file name.
 			{
 				break;
 			} 
-			
-			// event handling
 			EndDrawing();
 		}
 		
@@ -905,6 +941,7 @@ ii.the name as the file name.
 		ClosePCMHandle(pcm_handle);
 		munmap(mapped_data, header.dataSize);
 		fclose(file);
+		UnloadTexture(texture);
 		CloseWindow();
 	}
 	
