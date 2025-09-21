@@ -59,6 +59,7 @@ PCM_Write(AudioContext* ctx, U32 writable_size)
 {
 	if(LINUX)
 		return LINUX_PCM_Write(ctx->pcm_handle, ctx->audio_data, writable_size);
+	return -1;
 }
 
 void

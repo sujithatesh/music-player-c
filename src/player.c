@@ -538,12 +538,7 @@ int main(int argc, char* argv[])
 		return 1;
 	}
 	
-	spall_buffer_begin(&spall_ctx, &spall_buffer, 
-										 __FUNCTION__,             // name of your function
-										 sizeof(__FUNCTION__) - 1, // name len minus the null terminator
-										 get_time_in_nanos()      // timestamp in nanoseconds -- start of your timing block
-										 );
-	
+	SPALL_BEGIN("event_name?");
 	String8 home_dir;
 	Arena text_arena = arena_commit(1024 * 1024 * 1024);
 	home_dir = STRING8(getenv("HOME"));
