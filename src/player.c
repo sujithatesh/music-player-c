@@ -582,7 +582,7 @@ int main(int argc, char* argv[])
 		printf("Failed to setup spall?\n");
 		return 1;
 	}
-	int buffer_size = 1 * 1024 * 1024;
+	U32 buffer_size = 1 * 1024 * 1024;
 	unsigned char *buffer = malloc(buffer_size);
 	spall_buffer = (SpallBuffer)
 	{
@@ -593,8 +593,8 @@ int main(int argc, char* argv[])
 		printf("Failed to init spall buffer?\n");
 		return 1;
 	}
-	
 	SPALL_BEGIN("event_name?");
+	
 	String8 home_dir;
 	Arena text_arena = arena_commit(1024 * 1024 * 1024);
 	home_dir = STRING8(getenv("HOME"));
@@ -945,8 +945,8 @@ ii.the name as the file name.
 		CloseWindow();
 	}
 	
+	SPALL_END();
 	spall_buffer_quit(&spall_ctx, &spall_buffer);
-	// Freeing our buffer's memory now that spall_buffer_quit has flushed it for us.
 	free(buffer);
 	spall_quit(&spall_ctx);
 	
