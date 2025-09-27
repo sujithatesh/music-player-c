@@ -715,6 +715,7 @@ int main(int argc, char* argv[])
 		get_formatted_time_from_sec(&total_duration, track_duration);
 		// setting current_pos of file to 0
 		F32 current_pos = 0;
+		F32 cached_pos = 0;
 		
 		// no stdout from raylib
 		SetTraceLogLevel(LOG_NONE);
@@ -808,6 +809,10 @@ ii.the name as the file name.
 			// TODO(sujith): setup mutex lock
 			// Draw playback position
 			current_pos = get_playback_position(&audCon);
+			if(!pause_button_clicked)
+			{
+				cached_pos = current_pos;
+			}
 			formatted_time current_duration = {0};
 			get_formatted_time_from_sec(&current_duration, current_pos);
 			DrawTextEx(ui_font,
@@ -820,7 +825,7 @@ ii.the name as the file name.
 			// Draw seeking line
 			DrawLine(line_coords.x, line_coords.y, line_coords.x + 25 * font_size, line_coords.y, RED);
 			// Draw seeking circle
-			float circle_x = line_coords.x + (25.0f * font_size) * ((float)current_pos / (float)track_duration);
+			float circle_x = line_coords.x + (25.0f * font_size) * ((float)cached_pos / (float)track_duration);
 			DrawCircle((int)circle_x, line_coords.y, 5, RED);
 			
 			// Draw Pause Play button
