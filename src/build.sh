@@ -4,12 +4,10 @@
 OS=$(uname)
 
 if [[ "$OS" == "Linux" ]]; then
-    echo "Building for Linux..."
-    export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/home/sujith/gitshit/raylib-5.0_linux_amd64/lib
-    gcc player.c -finstrument-functions -pedantic -Wall -Wpedantic -g -o ../player -lasound\
+    gcc player.c -finstrument-functions -pedantic -Wall -Wpedantic -g -o ../player \
         -I ../include\
         -L../lib\
-        -lraylib -lm \
+        -lasound -lraylib -lm \
 
 elif [[ "$OS" == "Darwin" ]]; then
     echo "Building for macOS..."

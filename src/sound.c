@@ -5,7 +5,7 @@ typedef struct{
 	U8 *audio_data;
 	U32 should_stop;
 	U32 totalFrames;
-	U32 framesWritten;
+	volatile U32 framesWritten;
 	U32 remainingFrames;
 	WaveHeader *header;
 	U32 chunk_size;

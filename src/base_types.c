@@ -42,6 +42,12 @@ typedef struct StringDecode{
 	U32 size;
 } StringDecode;
 
+typedef struct Array32{
+	U32* array;
+	U32 count;
+	U32 capacity;
+} Array32;
+
 typedef struct{
 	void* memory;
 	size_t capacity;
@@ -94,3 +100,16 @@ String8 push_str8_copy(Arena *arena, String8 src) {
 	};
 }
 
+void push_array(Arena* arena, Array32* arr, U32 val)
+{
+	U32* new_array = arena_alloc(arena, sizeof(U32) * (arr->count + 1));
+	
+	for (U32 i = 0; i < arr->count; i++) {
+		new_array[i] = arr->array[i];
+	}
+	
+	new_array[arr->count] = val;
+	
+	arr->array = new_array;
+	arr->count++;
+}

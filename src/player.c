@@ -13,10 +13,9 @@
 #include "linux.c"
 #include "sound.c"
 #include "generic.c"
+#include "player.h"
 
-#define FONT_SIZE 23
-#define SPALL_BUFFER_SIZE 10 * 1024 * 1024
-#define TABLE_SIZE 101
+
 
 #define SPALL_BEGIN(event_name) \
 spall_buffer_begin(&spall_ctx, &spall_buffer, event_name, sizeof(event_name)-1, get_time_in_nanos())
@@ -26,85 +25,6 @@ spall_buffer_end(&spall_ctx, &spall_buffer, get_time_in_nanos())
 
 static SpallProfile spall_ctx;
 static SpallBuffer  spall_buffer;
-
-typedef enum {
-	ERROR,
-	WARNING,
-	SUCESS
-} MessageType;
-
-typedef enum {
-	NOT_HOVERING = -1
-} DummyValue;
-
-typedef struct {
-	U32 hours;
-	U8 min;
-	U8 sec;
-} formatted_time;
-
-typedef struct{
-	Rectangle rec;
-	Color color;
-	String8 title;
-}Button;
-
-typedef struct Entry Entry;
-
-struct Entry
-{
-	String8 key;
-	U32 *values;
-	U32 value_count;
-	U32 capacity; 
-	Entry *next; 
-};
-
-typedef struct {
-	Entry* buckets[TABLE_SIZE];
-} StringArrayHashMap;
-
-// djb2 string hash function
-U64 hash(String8 *str) {
-	U64 hash = 5381;
-	for (U32 i = 0; i < str->size; i++) {
-    U32 c = str->str[i];
-    hash = ((hash << 5) + hash) + c;
-	}
-	return hash % TABLE_SIZE;
-}
-
-void insert(Arena* arena, StringArrayHashMap* map, String8* key, size_t capacity) {
-	U64 h = hash(key);
-	Entry *entry = arena_alloc(arena, sizeof(Entry));
-	entry->key = duplicateString(arena, *key);
-	entry->values = arena_alloc(arena, capacity * sizeof(U32));
-	entry->value_count = 0;
-	entry->capacity = capacity;
-	entry->next = map->buckets[h];
-	map->buckets[h] = entry;
-}
-
-B32 
-contains(StringArrayHashMap *map, String8 *key) {
-	U64 h = hash(key);
-	for (Entry *e = map->buckets[h]; e; e = e->next) {
-		if (compareStrings(e->key, *key) == 0) {
-			return 1; 
-		}
-	}
-	return 0;
-}
-
-
-Entry*
-get(StringArrayHashMap *map, String8 *key) {
-	U64 h = hash(key);
-	for (Entry *e = map->buckets[h]; e; e = e->next) {
-		if (compareStrings(e->key, *key) == 0) return e;
-	}
-	return NULL;
-}
 
 U64 get_time_in_nanos(void) {
 	struct timespec spec;
@@ -326,7 +246,6 @@ void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena
 	
 	Camera2D camera = { 0 };
 	camera.offset = (Vector2){ 0, 0};
-	camera.offset = (Vector2){ 0, 0};
 	camera.rotation = 0.0f;
 	camera.zoom = 1.0f;
 	
@@ -336,7 +255,6 @@ void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena
 	String8 new_directory      = {0};
 	U32 hovering_button_index  = 0;
 	U32 index                  = 0;
-	U32* selected_buttons      = 0;
 	U32 selected_button_count  = 0;
 	B32 multiple_selected      = 0;
 	B32 send_toast             = 0;
@@ -346,7 +264,14 @@ void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena
 	Font ui_font = LoadFontFromMemory(".ttf", Helvetica_ttf, Helvetica_ttf_len, 35, NULL, 100);
 	Vector2 size = MeasureTextEx(ui_font, "Hello", FONT_SIZE, 0);
 	U32 font_size = size.y;
-	StringArrayHashMap all_buttons;
+	
+	Arena dir_arena = arena_commit(2024 * 2024);
+	string_array_node* node = arena_alloc(&dir_arena, sizeof(string_array_node));
+	node->count = 0;
+	node->next = 0;
+	node->key.str = NULL;      // Initialize properly
+	node->key.size = 0;        // Initialize properly
+	node->arr.array = NULL;    // Initialize properly
 	
 	while(!WindowShouldClose())
 	{
@@ -381,11 +306,6 @@ void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena
 			mouse_moved = 1;
 		}
 		
-		/*NOTE(sujith): here if hovering_button_index is >= entry_count when opening a directory
-	 and that directory happens to have entry count less than hovering_button it will crash
- as we are using it as an array index, it would be out of bounds, so we are assigining it 
-a dummy value of not hovering
-*/
 		if(hovering_button_index >= entry_count)
 		{
 			hovering_button_index = NOT_HOVERING;
@@ -400,7 +320,7 @@ a dummy value of not hovering
 			}
 		}
 		
-		if(hovering_button_index != -1)
+		if(hovering_button_index != NOT_HOVERING)
 		{
 			DrawTextWithOutlineAndFont(buttons[hovering_button_index].rec, GREEN,
 																 RED, 2 * font_size, buttons[hovering_button_index].title, ui_font, font_size);
@@ -408,9 +328,7 @@ a dummy value of not hovering
 		
 		if(timer > 0 && send_toast)
 		{
-			String8 not_correct_file_type;
-			not_correct_file_type.str = arena_alloc(text_arena, 40);
-			not_correct_file_type = STRING8("Invalid wav file");
+			String8 not_correct_file_type = STRING8("Invalid wav file");
 			ToastMessage(not_correct_file_type, ui_font, size);
 			timer -= GetFrameTime() * 1000;
 		}
@@ -420,44 +338,83 @@ a dummy value of not hovering
 			timer = 2000;
 		}
 		
-		for(U32 i = 0; i < selected_button_count; i++)
+		// Find or create node for current directory
+		string_array_node* target_node = NULL;
+		string_array_node* counter_node = node;
+		
+		// Search for existing node
+		while(counter_node != NULL) 
 		{
-			DrawTextWithOutlineAndFont(buttons[selected_buttons[i]].rec, RED, WHITE, font_size,
-																 buttons[selected_buttons[i]].title, ui_font, font_size);
+			// Skip nodes with uninitialized keys
+			if(counter_node->key.str != NULL && counter_node->key.size > 0)
+			{
+				if(counter_node->key.size == current_directory.size && 
+					 memcmp(counter_node->key.str, current_directory.str, current_directory.size) == 0)
+				{
+					target_node = counter_node;
+					break;
+				}
+			}
+			counter_node = counter_node->next;
 		}
 		
-		// event loop
-		if(((IsKeyPressed(KEY_M)) || IsMouseButtonPressed(1)) && hovering_button_index != NOT_HOVERING)
+		// Create new node if not found
+		if(target_node == NULL)
 		{
-			String8 current_file = entries[hovering_button_index]->full_path;;
-			file_type file_extension = CheckValidWavFile(current_file, &send_toast);
+			// Find the first empty node or create a new one
+			counter_node = node;
 			
-			Entry* e = get(&all_buttons, &current_directory);
-			
-			if(e)
+			// If the first node is empty, use it
+			if(counter_node->key.str == NULL || counter_node->key.size == 0)
 			{
-				selected_buttons = e->values;
+				target_node = counter_node;
 			}
 			else
 			{
-				// Key doesn't exist → create a new entry
-				insert(text_arena, &all_buttons, &current_directory, 1024);
+				// Find the last node and append a new one
+				while(counter_node->next != NULL)
+				{
+					counter_node = counter_node->next;
+				}
 				
-				// Get the newly inserted entry
-				e = get(&all_buttons, &current_directory);
-				if(e)
-				{
-					selected_buttons = e->values;
-				}
-				else
-				{
-					// This should never happen, but just in case
-					selected_buttons = NULL;
-					printf("Error: failed to insert or retrieve key\n");
-				}
+				// Create new node
+				string_array_node* new_node = arena_alloc(&dir_arena, sizeof(string_array_node));
+				new_node->next = NULL;
+				counter_node->next = new_node;
+				target_node = new_node;
 			}
 			
-			if(file_extension != WAV_FILE)
+			// Initialize the target node
+			target_node->key.str = arena_alloc(&dir_arena, current_directory.size);
+			memcpy(target_node->key.str, current_directory.str, current_directory.size);
+			target_node->key.size = current_directory.size;
+			target_node->count = 0;
+			target_node->arr.array = NULL;
+		}
+		
+		// FIXED: Use target_node instead of the old logic
+		U32* current_buttons = NULL;
+		if(target_node != NULL && target_node->count > 0)
+		{
+			current_buttons = target_node->arr.array;
+		}
+		
+		// Draw highlighted selected buttons
+		for(U32 i = 0; i < (target_node ? target_node->count : 0); i++)
+		{
+			if(current_buttons && current_buttons[i] < entry_count)
+			{
+				DrawTextWithOutlineAndFont(buttons[current_buttons[i]].rec, RED, WHITE, 2 * font_size,
+																	 buttons[current_buttons[i]].title, ui_font, font_size);
+			}
+		}
+		
+		// event loop - FIXED: Use target_node for selection
+		if(((IsKeyPressed(KEY_M)) || IsMouseButtonPressed(1)) && hovering_button_index != NOT_HOVERING)
+		{
+			String8 current_file = entries[hovering_button_index]->full_path;
+			file_type marked_file_type = CheckValidWavFile(current_file, &send_toast);
+			if(marked_file_type != WAV_FILE)
 			{
 				send_toast = 1;
 			}
@@ -465,10 +422,13 @@ a dummy value of not hovering
 			{
 				if(!entries[hovering_button_index]->is_directory)
 				{
-					file_paths[selected_button_count] = current_file; 
-					selected_buttons[selected_button_count] = hovering_button_index;
+					file_paths[selected_button_count] = current_file;
 					*file_count = ++selected_button_count;
 					multiple_selected = 1;
+					
+					// FIXED: Add to the target_node we already found/created
+					push_array(&dir_arena, &target_node->arr, hovering_button_index);
+					target_node->count++;
 				}
 			}
 		}
@@ -489,7 +449,6 @@ a dummy value of not hovering
 																					entries[hovering_button_index]->name);
 					}
 					reload_dir = 1;
-					//hovering_button_index = 0;
 				}
 				else {
 					String8 current_file = entries[hovering_button_index]->full_path;
@@ -567,6 +526,7 @@ a dummy value of not hovering
 			entry_count = 0;
 			memset(entries, 0, sizeof(entries));
 			LoadDirectory(text_arena, current_directory, entries, &entry_count, 0);
+			reload_dir = 0;
 		}
 		
 		EndMode2D();
@@ -574,7 +534,6 @@ a dummy value of not hovering
 	}
 	CloseWindow();
 }
-
 
 int main(int argc, char* argv[]) 
 {
@@ -707,6 +666,7 @@ int main(int argc, char* argv[])
 			audio_data = mapped_data + 44;
 		}
 		
+		// TODO(sujith): audio_data + header.dataSize might go past the mapped memory, depending on header size.
 		// fetching metadata
 		U32 *metadata_start = (U32*)(audio_data + header.dataSize);
 		
@@ -859,6 +819,7 @@ ii.the name as the file name.
 									 component_center.y + texture.width
 								 }, 20, 0, GREEN);
 			
+			// TODO(sujith): setup mutex lock
 			// Draw playback position
 			current_pos = get_playback_position(&audCon);
 			formatted_time current_duration = {0};
@@ -872,6 +833,7 @@ ii.the name as the file name.
 			
 			// Draw seeking line
 			DrawLine(line_coords.x, line_coords.y, line_coords.x + 25 * font_size, line_coords.y, RED);
+			// Draw seeking circle
 			float circle_x = line_coords.x + (25.0f * font_size) * ((float)current_pos / (float)track_duration);
 			DrawCircle((int)circle_x, line_coords.y, 5, RED);
 			
