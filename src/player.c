@@ -15,8 +15,6 @@
 #include "generic.c"
 #include "player.h"
 
-
-
 #define SPALL_BEGIN(event_name) \
 spall_buffer_begin(&spall_ctx, &spall_buffer, event_name, sizeof(event_name)-1, get_time_in_nanos())
 
@@ -268,10 +266,10 @@ void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena
 	Arena dir_arena = arena_commit(2024 * 2024);
 	string_array_node* node = arena_alloc(&dir_arena, sizeof(string_array_node));
 	node->count = 0;
-	node->next = 0;
-	node->key.str = NULL;      // Initialize properly
-	node->key.size = 0;        // Initialize properly
-	node->arr.array = NULL;    // Initialize properly
+	node->next = NULL;
+	node->key.str = NULL;
+	node->key.size = 0;
+	node->arr.array = NULL;
 	
 	while(!WindowShouldClose())
 	{
@@ -338,53 +336,43 @@ void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena
 			timer = 2000;
 		}
 		
-		// Find or create node for current directory
+		// search for current_directory in the nodes
 		string_array_node* target_node = NULL;
-		string_array_node* counter_node = node;
-		
-		// Search for existing node
-		while(counter_node != NULL) 
+		for(string_array_node* counter_node = node;
+				counter_node != NULL; counter_node = counter_node->next)
 		{
-			// Skip nodes with uninitialized keys
 			if(counter_node->key.str != NULL && counter_node->key.size > 0)
 			{
-				if(counter_node->key.size == current_directory.size && 
+				if(counter_node->key.str &&
+					 counter_node->key.size == current_directory.size && 
 					 memcmp(counter_node->key.str, current_directory.str, current_directory.size) == 0)
 				{
 					target_node = counter_node;
 					break;
 				}
 			}
-			counter_node = counter_node->next;
 		}
 		
-		// Create new node if not found
+		// if not found i.e. target_node is null, then create a new one
 		if(target_node == NULL)
 		{
-			// Find the first empty node or create a new one
-			counter_node = node;
-			
-			// If the first node is empty, use it
+			string_array_node* counter_node = node;
 			if(counter_node->key.str == NULL || counter_node->key.size == 0)
 			{
 				target_node = counter_node;
 			}
 			else
 			{
-				// Find the last node and append a new one
 				while(counter_node->next != NULL)
 				{
 					counter_node = counter_node->next;
 				}
-				
-				// Create new node
 				string_array_node* new_node = arena_alloc(&dir_arena, sizeof(string_array_node));
 				new_node->next = NULL;
 				counter_node->next = new_node;
 				target_node = new_node;
 			}
 			
-			// Initialize the target node
 			target_node->key.str = arena_alloc(&dir_arena, current_directory.size);
 			memcpy(target_node->key.str, current_directory.str, current_directory.size);
 			target_node->key.size = current_directory.size;
@@ -392,14 +380,12 @@ void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena
 			target_node->arr.array = NULL;
 		}
 		
-		// FIXED: Use target_node instead of the old logic
 		U32* current_buttons = NULL;
 		if(target_node != NULL && target_node->count > 0)
 		{
 			current_buttons = target_node->arr.array;
 		}
 		
-		// Draw highlighted selected buttons
 		for(U32 i = 0; i < (target_node ? target_node->count : 0); i++)
 		{
 			if(current_buttons && current_buttons[i] < entry_count)
@@ -409,7 +395,6 @@ void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena
 			}
 		}
 		
-		// event loop - FIXED: Use target_node for selection
 		if(((IsKeyPressed(KEY_M)) || IsMouseButtonPressed(1)) && hovering_button_index != NOT_HOVERING)
 		{
 			String8 current_file = entries[hovering_button_index]->full_path;
@@ -426,7 +411,6 @@ void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena
 					*file_count = ++selected_button_count;
 					multiple_selected = 1;
 					
-					// FIXED: Add to the target_node we already found/created
 					push_array(&dir_arena, &target_node->arr, hovering_button_index);
 					target_node->count++;
 				}
@@ -532,6 +516,8 @@ void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena
 		EndMode2D();
 		EndDrawing();
 	}
+	arena_clear(&dir_arena);
+	arena_destroy(&dir_arena);
 	CloseWindow();
 }
 
