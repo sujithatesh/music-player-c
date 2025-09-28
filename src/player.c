@@ -79,6 +79,7 @@ F64 get_current_time(void)
 	clock_gettime(CLOCK_MONOTONIC, &current_time);
 	return current_time.tv_sec + current_time.tv_nsec / 1000000000.0;
 }
+
 void* audio_thread(void* arg) {
 	AudioContext *ctx = (AudioContext*)arg;
 	
@@ -100,19 +101,44 @@ void* audio_thread(void* arg) {
 		spall_buffer_begin(&spall_ctx, &thread_buffer, "audio_loop", sizeof("audio_loop")-1, get_time_in_nanos());
 		
 		pthread_mutex_lock(&ctx->mutex);
-		if (!ctx->isPaused && ctx->remainingFrames > 0) { // checking the frames to write 
+		if (!ctx->isPaused) { // checking the frames to write 
 			U32 writable_size = (ctx->remainingFrames < ctx->chunk_size) ? ctx->remainingFrames : ctx->chunk_size; 
 			S32 rc = PCM_Write(ctx, writable_size); //buffer is full just continue 
-			if (rc == -EAGAIN) { // Buffer is full, just continue 
+			if (rc == -EAGAIN)
+			{
+				// Buffer is full, just continue 
 			} 
-			else if (rc < 0) { if (rc == -EPIPE) { // Underrun occurred, prepare the PCM 
-					printf("Audio underrun occurred, recovering...\n"); PCM_Prepare(ctx); } else { printf("Audio write error: %s\n", snd_strerror(rc)); ctx->isPaused = 1; } } else { // Successfully wrote frames 
+			else if (rc < 0)
+			{ 
+				if (rc == -EPIPE) 
+				{ // Underrun occurred, prepare the PCM 
+					printf("Audio underrun occurred, recovering...\n"); PCM_Prepare(ctx); 
+				}
+				else
+				{
+					printf("Audio write error: %s\n", snd_strerror(rc));
+					ctx->isPaused = 1; 
+				} 
+			} else 
+			{ // Successfully wrote frames 
 				ctx->remainingFrames -= rc; 
 				ctx->audio_data += (rc * ctx->header->bitsPerSample / 8 * ctx->header->noOfChannels); // update frames written 
 				ctx->framesWritten += rc; 
-				if (ctx->remainingFrames <= 0) { ctx->isPlaying = 0; } 
+				snd_pcm_sframes_t delay;
+				S32 err = snd_pcm_delay(ctx->pcm_handle, &delay);
+				if (err < 0) 
+				{
+				} 
+				else 
+				{ 
+					if (delay == 0) 
+					{
+						ctx->isPlaying = 0; 
+					}
+				}
 			} 
 		} 
+		
 		pthread_mutex_unlock(&ctx->mutex);
 		
 		spall_buffer_end(&spall_ctx, &thread_buffer, get_time_in_nanos());
@@ -239,7 +265,7 @@ void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena
 												String8 current_directory, Color found_pywal_colors)
 {
 	SetTraceLogLevel(LOG_NONE);
-	SetConfigFlags(FLAG_VSYNC_HINT);
+	//SetConfigFlags(FLAG_VSYNC_HINT);
 	InitWindow(1200, 720, "File Open Dialog");
 	
 	Camera2D camera = { 0 };
@@ -278,9 +304,7 @@ void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena
 		ClearBackground(found_pywal_colors);
 		
 		Button buttons[entry_count];
-		
 		Rectangle file_content;
-		
 		// precaculate
 		for(U32 temp = 0; temp < entry_count; temp++)
 		{
@@ -697,12 +721,20 @@ int main(int argc, char* argv[])
 		audCon.audio_data = (U8*)audio_data;
 		audCon.remainingFrames = remainingFrames;
 		audCon.framesWritten = 0;
-		audCon.totalFrames = header.dataSize / (header.bitsPerSample / 8 * header.noOfChannels);
+		U32 actual_audio_bytes = file_size - 44;
+		audCon.totalFrames = actual_audio_bytes / (header.bitsPerSample / 8 * header.noOfChannels);
+		remainingFrames = audCon.totalFrames;
 		audCon.header = &header;
 		
 		audCon.chunk_size = header.sampleFreq / 100; // 10ms chunks
-		if (audCon.chunk_size < 64) audCon.chunk_size = 64;   // Minimum chunk size
-		if (audCon.chunk_size > 1024) audCon.chunk_size = 1024; // Maximum chunk size
+		if (audCon.chunk_size < 64) \
+		{
+			audCon.chunk_size = 64;   // Minimum chunk size
+		}
+		if (audCon.chunk_size > 1024) 
+		{
+			audCon.chunk_size = 1024; // Maximum chunk size
+		}
 		
 		// calling audio
 		pthread_mutex_init(&audCon.mutex, NULL);
@@ -711,15 +743,16 @@ int main(int argc, char* argv[])
 		
 		// getting total track duration in seconds
 		F32 track_duration = get_track_duration(&audCon);
-		formatted_time total_duration  = {0}; 
-		get_formatted_time_from_sec(&total_duration, track_duration);
+		formatted_time total_duration  = {0};
+		U32 rounded_total_duration = (U32)(track_duration+ 0.5f);
+		get_formatted_time_from_sec(&total_duration, rounded_total_duration);
 		// setting current_pos of file to 0
 		F32 current_pos = 0;
 		F32 cached_pos = 0;
 		
 		// no stdout from raylib
 		SetTraceLogLevel(LOG_NONE);
-		SetConfigFlags(FLAG_VSYNC_HINT);
+		//SetConfigFlags(FLAG_VSYNC_HINT|FLAG_MSAA_4X_HINT);
 		
 		// --------------------------DRAW CYCLE------------------------------
 		InitWindow(1200, 720, "Music Player");
@@ -809,12 +842,15 @@ ii.the name as the file name.
 			// TODO(sujith): setup mutex lock
 			// Draw playback position
 			current_pos = get_playback_position(&audCon);
+			
 			if(!pause_button_clicked)
 			{
 				cached_pos = current_pos;
 			}
 			formatted_time current_duration = {0};
-			get_formatted_time_from_sec(&current_duration, current_pos);
+			// rounding off 
+			U32 rounded_pos = (U32)(current_pos + 0.5f);
+			get_formatted_time_from_sec(&current_duration, rounded_pos);
 			DrawTextEx(ui_font,
 								 TextFormat("%02d:%02d / %02d:%02d", current_duration.min,
 														current_duration.sec, total_duration.min, total_duration.sec),
@@ -826,18 +862,10 @@ ii.the name as the file name.
 			DrawLine(line_coords.x, line_coords.y, line_coords.x + 25 * font_size, line_coords.y, RED);
 			// Draw seeking circle
 			float circle_x = line_coords.x + (25.0f * font_size) * ((float)cached_pos / (float)track_duration);
-			DrawCircle((int)circle_x, line_coords.y, 5, RED);
+			DrawCircle(circle_x, line_coords.y, 5, RED);
 			
 			// Draw Pause Play button
 			DrawButtonWithFont(&pause_button, BLACK, ui_font, font_size, 0, false);
-			U32 elapsed = get_playback_position(&audCon);
-			U32 total   = audCon.totalFrames / audCon.header->sampleFreq;
-			
-			if (elapsed >= total)
-			{
-				PCMDrain(pcm_handle);
-				break;
-			}
 			
 			// Draw playlist
 			for(U32 i = currently_playing; i < file_count; i++)

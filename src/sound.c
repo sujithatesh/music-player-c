@@ -115,16 +115,40 @@ typedef struct
 	U32 mode;
 } AudioData;
 
-// get the playback position in seconds
-U32 get_playback_position(AudioContext *ctx){
-	if (!ctx->isPlaying && ctx->isPaused) return 0;
+F32 
+get_playback_position(AudioContext *ctx) {
+	snd_pcm_status_t *status;
+	snd_pcm_status_alloca(&status);
 	
-	snd_pcm_sframes_t delay = 0;
-	S16 rt = snd_pcm_delay(ctx->pcm_handle, &delay);
-	if (rt < 0) delay = 0;
+	int err = snd_pcm_status(ctx->pcm_handle, status);
+	if (err < 0) {
+		fprintf(stderr, "snd_pcm_status failed: %s\n", snd_strerror(err));
+		return 0.0f;
+	}
 	
-	// caculate frames without delay
-	U32 frames_played = ctx->framesWritten - ((delay > 0) ? delay : 0);
+	// Total frames written to device
+	snd_pcm_sframes_t frames_written = ctx->framesWritten;
 	
-	return (U32)frames_played / ctx->header->sampleFreq;
+	// Frames still buffered
+	snd_pcm_sframes_t delay = snd_pcm_status_get_delay(status);
+	
+	// Frames already played = written - delay
+	snd_pcm_sframes_t frames_played = frames_written - delay;
+	if (frames_played < 0) frames_played = 0;
+	
+	// Clamp against total frames
+	float position = (F32)frames_played / ctx->header->sampleFreq;
+	float total_duration = (F32)ctx->totalFrames / ctx->header->sampleFreq;
+	if (position > total_duration) {
+		position = total_duration;
+	}
+	return position;
+}
+
+
+void
+set_playback_position(AudioContext* ctx)
+{
+	snd_pcm_drop(ctx->pcm_handle);
+	snd_pcm_prepare(ctx->pcm_handle);
 }
