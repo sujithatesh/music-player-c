@@ -7,21 +7,24 @@
 #define PCM_Handle snd_pcm_t
 #endif
 
-void GetCurrentDirectory(String8 *current_directory){
+void
+GetCurrentDirectory(String8 *current_directory){
 	if(LINUX){
 		LINUX_get_current_directory(current_directory);
 		current_directory->size = getLengthOfLegacyString((char*)current_directory->str);
 	}
 }
 
-void LoadDirectory(Arena *arena, String8 current_directory, FileEntry **entries, U32 *entry_count, B8 get_full_path){
+void 
+LoadDirectory(Arena *arena, String8 current_directory, FileEntry **entries, U32 *entry_count, B8 get_full_path){
 	memset(entries, 0, *entry_count * sizeof(FileEntry));
 	if(LINUX){
 		LINUX_load_directory(arena, current_directory, entries, entry_count, get_full_path);
 	}
 }
 
-PCM_Handle* PCM_HandlerSetup(WaveHeader *header) 
+PCM_Handle*
+PCM_HandlerSetup(WaveHeader *header) 
 {
 	return LINUX_pcm_handler_setup(header);
 }

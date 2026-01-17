@@ -15,12 +15,6 @@
 #include "generic.c"
 #include "player.h"
 
-#define SPALL_BEGIN(event_name) \
-spall_buffer_begin(&spall_ctx, &spall_buffer, event_name, sizeof(event_name)-1, get_time_in_nanos())
-
-#define SPALL_END() \
-spall_buffer_end(&spall_ctx, &spall_buffer, get_time_in_nanos())
-
 static SpallProfile spall_ctx;
 static SpallBuffer  spall_buffer;
 
@@ -89,24 +83,32 @@ void* audio_thread(void* arg) {
 	
 	SpallBuffer thread_buffer = {
 		.pid = 0, // optional, 0 = auto
-		.tid = (uint32_t)pthread_self(),
+		.tid = (U32)pthread_self(),
 		.length = AUDIO_THREAD_BUFFER_SIZE,
 		.data = buffer
 	};
+	
+#define SPALL_THREAD_BEGIN(event_name) \
+spall_buffer_begin(&spall_ctx, &thread_buffer, event_name, sizeof(event_name)-1, get_time_in_nanos())
+#define SPALL_THREAD_END() \
+spall_buffer_end(&spall_ctx, &thread_buffer, get_time_in_nanos())
 	
 	spall_buffer_init(&spall_ctx, &thread_buffer);
 	
 	// -------------------- Thread work --------------------
 	while(!ctx->should_stop) {
 		spall_buffer_begin(&spall_ctx, &thread_buffer, "audio_loop", sizeof("audio_loop")-1, get_time_in_nanos());
-		
+		SPALL_BEGIN("audio_start");
 		pthread_mutex_lock(&ctx->mutex);
 		if (!ctx->isPaused) { // checking the frames to write 
 			U32 writable_size = (ctx->remainingFrames < ctx->chunk_size) ? ctx->remainingFrames : ctx->chunk_size; 
+			SPALL_THREAD_BEGIN("pcm_write");
 			S32 rc = PCM_Write(ctx, writable_size); //buffer is full just continue 
+			SPALL_THREAD_END();
 			if (rc == -EAGAIN)
 			{
 				// Buffer is full, just continue 
+				continue;
 			} 
 			else if (rc < 0)
 			{ 
@@ -128,6 +130,7 @@ void* audio_thread(void* arg) {
 				S32 err = snd_pcm_delay(ctx->pcm_handle, &delay);
 				if (err < 0) 
 				{
+					continue;
 				} 
 				else 
 				{ 
@@ -138,11 +141,10 @@ void* audio_thread(void* arg) {
 				}
 			} 
 		} 
-		
+		SPALL_END();
+		//usleep(1000);
 		pthread_mutex_unlock(&ctx->mutex);
-		
 		spall_buffer_end(&spall_ctx, &thread_buffer, get_time_in_nanos());
-		usleep(1000);
 	}
 	
 	// Flush and cleanup
@@ -180,6 +182,12 @@ void DrawButtonWithFont(Button *clickable_rec, Color font_color, Font font, U32 
 	DrawTextEx(font, (char*)clickable_rec->title.str,
 						 (Vector2){clickable_rec->rec.x + text_offset, clickable_rec->rec.y + clickable_rec->rec.height / 2  - font_size / 2},
 						 font_size, 0, font_color);
+	/*if (clickable_rec->is_directory == true)
+	{
+		U32 rectangle_end_x = clickable_rec->rec.x + clickable_rec->rec.width;
+		U32 rectangle_end_y = clickable_rec->rec.y + clickable_rec->rec.height;
+		DrawCircle(rectangle_end_x - font_size, rectangle_end_y - font_size / 2, font_size / 4, YELLOW);
+	}*/
 }
 
 void DrawTextWithOutlineAndFont(Rectangle rec, Color font_color,Color outline_color, U32 margin, String8 text, Font font, U32 font_size)
@@ -261,7 +269,7 @@ CheckValidWavFile(String8 file_path, B32 *send_toast)
 	return file_extension;
 }
 
-void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena,
+void DrawFileOpenDialog(file_info* session_file_info,  U32* file_count, Arena *text_arena,
 												String8 current_directory, Color found_pywal_colors)
 {
 	SetTraceLogLevel(LOG_NONE);
@@ -285,16 +293,43 @@ void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena
 	S32 timer                  = 2000;
 	
 	LoadDirectory(text_arena, current_directory, entries, &entry_count, 0);
+	String8 cover_png_string8 = STRING8("cover.png");
+	String8 cover_jpg_string8 = STRING8("cover.jpg");
+	String8 current_album_art_path = {0};
+	for(U32 entry_index = 0;
+			entry_index < entry_count;
+			entry_index++)
+	{
+		if(strncmp((char*)entries[entry_index]->name.str, (char*)cover_png_string8.str, cover_png_string8.size) == 0)
+		{
+			current_album_art_path.str = arena_alloc(text_arena, 100);
+			current_album_art_path = appendStrings(text_arena, current_directory, STRING8("/"));
+			current_album_art_path = appendStrings(text_arena, current_album_art_path, cover_png_string8);
+			break;
+		}
+		else if(strncmp((char*)entries[entry_index]->name.str, (char*)cover_jpg_string8.str, cover_jpg_string8.size) == 0)
+		{
+			current_album_art_path.str = arena_alloc(text_arena, 100);
+			current_album_art_path = appendStrings(text_arena, current_directory, STRING8("/"));
+			current_album_art_path = appendStrings(text_arena, current_album_art_path, cover_jpg_string8);
+			break;
+		}
+	}
+	
+	session_file_info->album_art_path.str = arena_alloc(text_arena, current_album_art_path.size + 1);
+	session_file_info->album_art_path.str[current_album_art_path.size] = '\0';
+	memcpy((char*)session_file_info->album_art_path.str, (char*)current_album_art_path.str, current_album_art_path.size);
+	
 	Font ui_font = LoadFontFromMemory(".ttf", Helvetica_ttf, Helvetica_ttf_len, 35, NULL, 100);
 	Vector2 size = MeasureTextEx(ui_font, "Hello", FONT_SIZE, 0);
 	U32 font_size = size.y;
 	
 	Arena dir_arena = arena_commit(2024 * 2024);
 	string_array_node* node = arena_alloc(&dir_arena, sizeof(string_array_node));
-	node->count = 0;
-	node->next = NULL;
-	node->key.str = NULL;
-	node->key.size = 0;
+	node->count     = 0;
+	node->next      = NULL;
+	node->key.str   = NULL;
+	node->key.size  = 0;
 	node->arr.array = NULL;
 	
 	while(!WindowShouldClose())
@@ -316,12 +351,13 @@ void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena
 			buttons[temp].title = push_str8_copy(text_arena, entries[temp]->name);
 			buttons[temp].rec   = file_content;
 			buttons[temp].color = found_pywal_colors;
+			buttons[temp].is_directory = entries[temp]->is_directory;
 		}
 		
 		F32 wheelDirection = GetMouseWheelMove();
 		Vector2 mouseMoved = GetMouseDelta();
 		Vector2 mouseWorld = GetScreenToWorld2D(GetMousePosition(), camera);
-		B32 mouse_moved = 0;
+		B32 mouse_moved    = 0;
 		
 		if(mouseMoved.x != 0 || mouseMoved.y != 0)
 		{
@@ -336,7 +372,7 @@ void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena
 		// Draw loop
 		for(index = 0; index < entry_count; index++)
 		{
-			DrawButtonWithFont(&buttons[index], RED, ui_font, font_size, 2 * font_size, true);
+			DrawButtonWithFont(&buttons[index], buttons[index].is_directory ? PINK : RED, ui_font, font_size, 2 * font_size, true);
 			if(button_is_hovering(&buttons[index], mouseWorld.x, mouseWorld.y) && mouse_moved){
 				hovering_button_index = index;
 			}
@@ -431,7 +467,7 @@ void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena
 			{
 				if(!entries[hovering_button_index]->is_directory)
 				{
-					file_paths[selected_button_count] = current_file;
+					session_file_info->file_paths[selected_button_count] = current_file;
 					*file_count = ++selected_button_count;
 					multiple_selected = 1;
 					
@@ -450,16 +486,15 @@ void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena
 					if(hovering_button_index == 0)
 					{
 						new_directory = PopPath(text_arena, current_directory);
-					} else {
-						new_directory = appendStrings(text_arena, current_directory,
-																					(String8){.str=(U8*)"/", .size = 1});
-						new_directory = appendStrings(text_arena, new_directory,
-																					entries[hovering_button_index]->name);
+					} 
+					else {
+						new_directory = appendStrings(text_arena, current_directory, STRING8("/"));
+						new_directory = appendStrings(text_arena, new_directory, entries[hovering_button_index]->name);
 					}
 					reload_dir = 1;
 				}
 				else {
-					String8 current_file = entries[hovering_button_index]->full_path;
+					String8 current_file     = entries[hovering_button_index]->full_path;
 					file_type file_extension = CheckValidWavFile(current_file, &send_toast);
 					
 					if(file_extension != WAV_FILE)
@@ -469,7 +504,7 @@ void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena
 					else 
 					{
 						if(multiple_selected != 1) {
-							file_paths[selected_button_count] = entries[hovering_button_index]->full_path;
+							session_file_info->file_paths[selected_button_count] = entries[hovering_button_index]->full_path;
 							*file_count = ++selected_button_count;
 						}
 						goto close_modal;
@@ -480,16 +515,16 @@ void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena
 		
 		if(IsKeyPressed(KEY_DOWN)) {
 			if(hovering_button_index >= entry_count - 1) 
-				hovering_button_index = entry_count - 1;
+				hovering_button_index  = entry_count - 1;
 			else {
-				hovering_button_index += 1;
+				hovering_button_index  += 1;
 			}
 		}
 		
 		if(IsKeyPressed(KEY_UP)) 
 		{
 			if(hovering_button_index <= 0) 
-				hovering_button_index = 0;
+				hovering_button_index  = 0;
 			else 
 			{
 				hovering_button_index -= 1;
@@ -502,31 +537,26 @@ void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena
 			break;
 		}
 		
-		int content_height = entry_count * font_size;
-		int view_height = GetScreenHeight();
-		
+		U16 content_height = entry_count * font_size;
+		U16 view_height    = GetScreenHeight();
+		U32 extra_height = content_height - view_height;
 		// Only allow scrolling if content is taller than the screen
 		if (content_height > view_height) 
 		{
-			int min_offset = view_height - content_height; // negative value or 0
-			int max_offset = 0;
-			
-			if (wheelDirection > 0) 
-			{ // scroll up
-				camera.offset.y = (camera.offset.y + font_size > max_offset)
-					? max_offset
-					: camera.offset.y + font_size;
+			if (wheelDirection < 0 && camera.target.y > 0)
+			{
+				// scrolling down
+				camera.target.y -= font_size;
 			}
-			else if (wheelDirection < 0) 
-			{ // scroll down
-				camera.offset.y = (camera.offset.y - font_size < min_offset)
-					? min_offset
-					: camera.offset.y - font_size;
+			else if (wheelDirection > 0 && camera.target.y - font_size <= extra_height)
+			{
+				camera.target.y += font_size;
 			}
 		}
-		else {
+		else
+		{
 			// Content fits inside screen → lock to top
-			camera.offset.y = 0;
+			camera.target.y = 0;
 		}
 		
 		if (reload_dir) {
@@ -534,20 +564,46 @@ void DrawFileOpenDialog(String8* file_paths,  U32* file_count, Arena *text_arena
 			entry_count = 0;
 			memset(entries, 0, sizeof(entries));
 			LoadDirectory(text_arena, current_directory, entries, &entry_count, 0);
+			for(U32 entry_index = 0;
+					entry_index < entry_count;
+					entry_index++)
+			{
+				if(strncmp((char*)entries[entry_index]->name.str, (char*)cover_png_string8.str, cover_png_string8.size) == 0)
+				{
+					current_album_art_path.str = arena_alloc(text_arena, 100);
+					current_album_art_path = appendStrings(text_arena, current_directory, STRING8("/"));
+					current_album_art_path = appendStrings(text_arena, current_album_art_path, cover_png_string8);
+					break;
+				}
+				else if(strncmp((char*)entries[entry_index]->name.str, (char*)cover_jpg_string8.str, cover_jpg_string8.size) == 0)
+				{
+					current_album_art_path.str = arena_alloc(text_arena, 100);
+					current_album_art_path = appendStrings(text_arena, current_directory, STRING8("/"));
+					current_album_art_path = appendStrings(text_arena, current_album_art_path, cover_jpg_string8);
+					break;
+				}
+			}
 			reload_dir = 0;
 		}
 		
 		EndMode2D();
 		EndDrawing();
 	}
+	if(current_album_art_path.str != NULL)
+	{
+		memcpy(session_file_info->album_art_path.str, current_album_art_path.str, current_album_art_path.size + sizeof(char));
+		session_file_info->album_art_path.size = current_album_art_path.size;
+	}
 	arena_clear(&dir_arena);
 	arena_destroy(&dir_arena);
 	CloseWindow();
 }
 
-int main(int argc, char* argv[]) 
+int 
+main(int argc, char* argv[]) 
 {
-	if (!spall_init_file("music_player.spall", 1, &spall_ctx)) {
+	if (!spall_init_file("music_player.spall", 1, &spall_ctx)) 
+	{
 		printf("Failed to setup spall?\n");
 		return 1;
 	}
@@ -558,19 +614,20 @@ int main(int argc, char* argv[])
 		.length = buffer_size,
 		.data = buffer,
 	};
-	if (!spall_buffer_init(&spall_ctx, &spall_buffer)) {
+	if (!spall_buffer_init(&spall_ctx, &spall_buffer)) 
+	{
 		printf("Failed to init spall buffer?\n");
 		return 1;
 	}
-	SPALL_BEGIN("event_name?");
+	SPALL_BEGIN("main");
 	
-	String8 home_dir;
-	Arena text_arena = arena_commit(1024 * 1024 * 1024);
-	home_dir = STRING8(getenv("HOME"));
+	String8 home_dir   = {0};
+	Arena text_arena   = arena_commit(1024 * 1024 * 1024);
+	home_dir           = STRING8(getenv("HOME"));
 	char *pywal_colors = (char*)appendStrings(&text_arena, home_dir, STRING8("/.cache/wal/colors")).str;
-	B8 found_pywal_colors = 0;
-	char pywal_background_color[11];
-	int pywal_background_color_int = 0;
+	B8 found_pywal_colors           = 0;
+	char pywal_background_color[11] = {0};
+	U16 pywal_background_color_int  = 0;
 	
 	// TODO(sujith): find some other way for this
 	if(!access(pywal_colors, F_OK))
@@ -585,7 +642,7 @@ int main(int argc, char* argv[])
 		pywal_background_color[9]  = 'F';
 		pywal_background_color[10] = '\0';
 		
-		for(int i = 0; i < 6; i++)
+		for(U16 i = 0; i < 6; i++)
 		{
 			char current_char = Buffer[i + 1];
 			pywal_background_color[i + 2] = (current_char >= 'a' && current_char <= 'f') ?
@@ -600,32 +657,33 @@ int main(int argc, char* argv[])
 	}
 	
 	// open file
-	String8 file_paths[1024] = {0};
+	file_info session_file_info  = {0};
+	session_file_info.file_paths = arena_alloc(&text_arena, 2048);
+	String8 current_directory    = {0};
 	U32 file_count = 0;
-	String8 current_directory = {0};
 	
 	if(argc == 1)
 	{
 		current_directory.str = arena_alloc(&text_arena, 1024);
 		GetCurrentDirectory(&current_directory);
-		DrawFileOpenDialog(file_paths, &file_count, &text_arena, current_directory, GetColor((found_pywal_colors) ? pywal_background_color_int : 0x6F7587FF));
+		DrawFileOpenDialog(&session_file_info, &file_count, &text_arena, current_directory, GetColor((found_pywal_colors) ? pywal_background_color_int : 0x6F7587FF));
 	}
 	else if(argc == 2) {
-		file_paths[0] = STRING8(argv[1]);
+		session_file_info.file_paths[0] = STRING8(argv[1]);
 	}
 	else {
 	}
 	
 	for(U32 i = 1; i < argc; i++)
 	{
-		file_paths[i - 1] = STRING8(argv[i]);
+		session_file_info.file_paths[i - 1] = STRING8(argv[i]);
 		file_count = argc - 1;
 	}
 	
 	FILE *file = 0;
 	for(U32 currently_playing = 0; currently_playing < file_count; currently_playing++)
 	{
-		file = fopen((char*)file_paths[currently_playing].str, "rb");
+		file = fopen((char*)session_file_info.file_paths[currently_playing].str, "rb");
 		
 		fseek(file, 0, SEEK_END);
 		U64 file_size = ftell(file);
@@ -688,14 +746,17 @@ int main(int argc, char* argv[])
 		B8 second_compare = 0;
 		String8 second_string_byte = {0};
 		char* artist_name = 0;
-		char* album_name = 0;
+		char* album_name  = 0;
 		
 		if(compare)
 		{
-			second_string_byte.str = (first_string_byte.str + byte_padding_u32);
+			second_string_byte.str  = (first_string_byte.str + byte_padding_u32);
 			second_string_byte.size = 8;
-			second_compare = compareValueStringSlice((U8*)"INFO", second_string_byte, 0, 4);
-			if(!second_compare) goto skip_metadata;
+			second_compare          = compareValueStringSlice((U8*)"INFO", second_string_byte, 0, 4);
+			if(!second_compare)
+			{
+				goto skip_metadata;
+			}
 		}
 		else goto skip_metadata;
 		
@@ -714,17 +775,17 @@ int main(int argc, char* argv[])
 		
 		// Setup AudioContext
 		AudioContext audCon = {0};
-		audCon.isPaused = 0;
-		audCon.isPlaying = 1;
-		audCon.should_stop = 0;
-		audCon.pcm_handle = pcm_handle;
-		audCon.audio_data = (U8*)audio_data;
+		audCon.isPaused     = 0;
+		audCon.isPlaying    = 1;
+		audCon.should_stop  = 0;
+		audCon.pcm_handle   = pcm_handle;
+		audCon.audio_data   = (U8*)audio_data;
 		audCon.remainingFrames = remainingFrames;
-		audCon.framesWritten = 0;
+		audCon.framesWritten   = 0;
 		U32 actual_audio_bytes = file_size - 44;
-		audCon.totalFrames = actual_audio_bytes / (header.bitsPerSample / 8 * header.noOfChannels);
-		remainingFrames = audCon.totalFrames;
-		audCon.header = &header;
+		audCon.totalFrames  = actual_audio_bytes / (header.bitsPerSample / 8 * header.noOfChannels);
+		remainingFrames     = audCon.totalFrames;
+		audCon.header       = &header;
 		
 		audCon.chunk_size = header.sampleFreq / 100; // 10ms chunks
 		if (audCon.chunk_size < 64) \
@@ -761,11 +822,10 @@ int main(int argc, char* argv[])
 		B8 pause_button_clicked = 0;
 		String8 play_pause[2] = {STRING8("Play"), STRING8("Pause")};
 		
-		Font ui_font = LoadFontFromMemory(".ttf", Helvetica_ttf, Helvetica_ttf_len, 35, NULL, 100);
-		Vector2 size = MeasureTextEx(ui_font, "Hello", FONT_SIZE, 0);
-		U32 font_size = size.y;
+		Font ui_font     = LoadFontFromMemory(".ttf", Helvetica_ttf, Helvetica_ttf_len, 35, NULL, 100);
+		Vector2 size     = MeasureTextEx(ui_font, "Hello", FONT_SIZE, 0);
+		U32 font_size    = size.y;
 		U32 screen_width = GetScreenWidth();
-		//U32 screen_height = GetScreenHeight();
 		
 		// Load Album art 
 		/*TODO(sujith): retreive this dynamically and add a fallback image
@@ -775,7 +835,14 @@ i. the name as the album name.
 ii.the name as the file name.
  iii. any file with .jpg, .jpeg, .png
 */
-		Image img = LoadImage("/home/sujith/Music/To Pimp A Butterfly/cover.jpg");
+		String8 album_art_path = {0};
+		album_art_path         = session_file_info.album_art_path;
+		if(album_art_path.str == NULL)
+		{
+			album_art_path = STRING8("../assets/placeholder.png");
+		}
+		
+		Image img = LoadImage((char*)album_art_path.str);
 		ImageResize(&img, GetScreenWidth() * 0.1, GetScreenWidth() * 0.1 );
 		
 		Texture2D texture = LoadTextureFromImage(img);
@@ -800,13 +867,13 @@ ii.the name as the file name.
 			BeginDrawing();
 			
 			DrawFPS(font_size, font_size);
-			Vector2 center = {.x = GetScreenWidth() / 2, .y = GetScreenHeight() / 2};
+			Vector2 center           = {.x = GetScreenWidth() / 2, .y = GetScreenHeight() / 2};
 			Vector2 component_center = center;
-			component_center.y -=  texture.height;
+			component_center.y      -=  texture.height;
 			
 			pause_rectangle.x = (component_center.x - 50);
 			pause_rectangle.y = (component_center.y + texture.height + 4 * font_size);
-			pause_button.rec = pause_rectangle;
+			pause_button.rec  = pause_rectangle;
 			
 			// pywal or default color
 			Color wal_color = GetColor((found_pywal_colors) ? pywal_background_color_int : 0x6F7587FF);
@@ -839,7 +906,6 @@ ii.the name as the file name.
 									 component_center.y + texture.width
 								 }, 20, 0, GREEN);
 			
-			// TODO(sujith): setup mutex lock
 			// Draw playback position
 			current_pos = get_playback_position(&audCon);
 			
@@ -870,12 +936,12 @@ ii.the name as the file name.
 			// Draw playlist
 			for(U32 i = currently_playing; i < file_count; i++)
 			{
-				DrawTextEx(ui_font, (char*)file_paths[i].str, (Vector2){screen_width - 20 * font_size, font_size * (i - currently_playing)}, font_size / 4 * 3, 0, GREEN);
+				DrawTextEx(ui_font, (char*)session_file_info.file_paths[i].str, (Vector2){screen_width - 20 * font_size, font_size * (i - currently_playing)}, font_size / 4 * 3, 0, GREEN);
 			}
 			
 			// playback_position
 			Vector2 mousePosition = GetMousePosition();
-			B8 space_pressed = IsKeyPressed(KEY_SPACE);
+			B8 space_pressed      = IsKeyPressed(KEY_SPACE);
 			if(IsMouseButtonPressed(0) || space_pressed)
 			{
 				if(button_is_hovering(&pause_button, mousePosition.x, mousePosition.y) || space_pressed)
