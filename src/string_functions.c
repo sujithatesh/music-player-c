@@ -38,16 +38,19 @@ duplicateString(Arena* arena, String8 str)
 	return str2;
 }
 
-String8 
-appendStrings(Arena *arena, String8 s1, String8 s2){
-	String8* appended_string = arena_alloc(arena, s1.size + s2.size + 1);
-	appended_string->str = s1.str;
-	for(U32 i = 0; i <s2.size; i++){
-		appended_string->str[s1.size + i] = s2.str[i];
-	}
-	appended_string->size = s1.size + s2.size;
-	appended_string->str[appended_string->size] = '\0';
-	return *appended_string;
+String8
+appendStrings(Arena *arena, String8 s1, String8 s2)
+{
+	String8 result = {0};
+	
+	result.size = s1.size + s2.size;
+	result.str  = arena_alloc(arena, result.size + 1);
+	
+	memcpy(result.str, s1.str, s1.size);
+	memcpy(result.str + s1.size, s2.str, s2.size);
+	
+	result.str[result.size] = '\0';
+	return result;
 }
 
 U32 
