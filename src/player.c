@@ -1,9 +1,9 @@
 #include <sys/mman.h>
 #include <pthread.h>
 #include <time.h>
+#include <string.h>
 
 #include "raylib.h"
-#include "spall.h"
 #include "font_data.h"
 
 #include "base_basic_types.h"
@@ -14,9 +14,6 @@
 #include "sound.c"
 #include "generic.c"
 #include "player.h"
-
-static SpallProfile spall_ctx;
-static SpallBuffer  spall_buffer;
 
 U64 get_time_in_nanos(void) {
 	struct timespec spec;
@@ -77,34 +74,12 @@ F64 get_current_time(void)
 void* audio_thread(void* arg) {
 	AudioContext *ctx = (AudioContext*)arg;
 	
-	// -------------------- Spall setup --------------------
-#define AUDIO_THREAD_BUFFER_SIZE (10*1024*1024)
-	unsigned char *buffer = malloc(AUDIO_THREAD_BUFFER_SIZE);
-	
-	SpallBuffer thread_buffer = {
-		.pid = 0, // optional, 0 = auto
-		.tid = (U32)pthread_self(),
-		.length = AUDIO_THREAD_BUFFER_SIZE,
-		.data = buffer
-	};
-	
-#define SPALL_THREAD_BEGIN(event_name) \
-spall_buffer_begin(&spall_ctx, &thread_buffer, event_name, sizeof(event_name)-1, get_time_in_nanos())
-#define SPALL_THREAD_END() \
-spall_buffer_end(&spall_ctx, &thread_buffer, get_time_in_nanos())
-	
-	spall_buffer_init(&spall_ctx, &thread_buffer);
-	
 	// -------------------- Thread work --------------------
 	while(!ctx->should_stop) {
-		spall_buffer_begin(&spall_ctx, &thread_buffer, "audio_loop", sizeof("audio_loop")-1, get_time_in_nanos());
-		SPALL_BEGIN("audio_start");
 		pthread_mutex_lock(&ctx->mutex);
 		if (!ctx->isPaused) { // checking the frames to write 
 			U32 writable_size = (ctx->remainingFrames < ctx->chunk_size) ? ctx->remainingFrames : ctx->chunk_size; 
-			SPALL_THREAD_BEGIN("pcm_write");
 			S32 rc = PCM_Write(ctx, writable_size); //buffer is full just continue 
-			SPALL_THREAD_END();
 			if (rc == -EAGAIN)
 			{
 				// Buffer is full, just continue 
@@ -141,16 +116,9 @@ spall_buffer_end(&spall_ctx, &thread_buffer, get_time_in_nanos())
 				}
 			} 
 		} 
-		SPALL_END();
-		//usleep(1000);
 		pthread_mutex_unlock(&ctx->mutex);
-		spall_buffer_end(&spall_ctx, &thread_buffer, get_time_in_nanos());
 	}
 	
-	// Flush and cleanup
-	spall_buffer_flush(&spall_ctx, &thread_buffer);
-	spall_buffer_quit(&spall_ctx, &thread_buffer);
-	free(buffer);
 	return NULL;
 }
 
@@ -602,25 +570,6 @@ void DrawFileOpenDialog(file_info* session_file_info,  U32* file_count, Arena *t
 int 
 main(int argc, char* argv[]) 
 {
-	if (!spall_init_file("music_player.spall", 1, &spall_ctx)) 
-	{
-		printf("Failed to setup spall?\n");
-		return 1;
-	}
-	U32 buffer_size = 1 * 1024 * 1024;
-	unsigned char *buffer = malloc(buffer_size);
-	spall_buffer = (SpallBuffer)
-	{
-		.length = buffer_size,
-		.data = buffer,
-	};
-	if (!spall_buffer_init(&spall_ctx, &spall_buffer)) 
-	{
-		printf("Failed to init spall buffer?\n");
-		return 1;
-	}
-	SPALL_BEGIN("main");
-	
 	String8 home_dir   = {0};
 	Arena text_arena   = arena_commit(1024 * 1024 * 1024);
 	home_dir           = STRING8(getenv("HOME"));
@@ -991,11 +940,6 @@ ii.the name as the file name.
 		UnloadTexture(texture);
 		CloseWindow();
 	}
-	
-	SPALL_END();
-	spall_buffer_quit(&spall_ctx, &spall_buffer);
-	free(buffer);
-	spall_quit(&spall_ctx);
 	
 	arena_destroy(&text_arena);
 	return 0;

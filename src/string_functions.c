@@ -1,18 +1,5 @@
 #define STRING8(s) (String8){.str = (U8*)s, .size = strlen(s)}
 
-//#include <stdio.h>
-//static void 
-//println(String8 *string){
-//if(string->str == 0) return;
-//else if(string->size == 0) return;
-//
-//for(int i = 0; i < string->size; i++){
-//if(string->str[i] != '\0') printf("%c", string->str[i]);
-//}
-//printf("\n");
-//return;
-//}
-
 static B8 compareStrings(String8 string1, String8 string2) {
 	if(string1.size != string2.size) return 0;
 	
