@@ -82,7 +82,7 @@ void* audio_thread(void* arg) {
 			S32 rc = PCM_Write(ctx, writable_size); //buffer is full just continue 
 			if (rc == -EAGAIN)
 			{
-				// Buffer is full, just continue 
+				usleep(10000);
 				continue;
 			} 
 			else if (rc < 0)
@@ -117,6 +117,7 @@ void* audio_thread(void* arg) {
 			} 
 		} 
 		pthread_mutex_unlock(&ctx->mutex);
+		usleep(100);
 	}
 	
 	return NULL;
@@ -241,7 +242,7 @@ void DrawFileOpenDialog(file_info* session_file_info,  U32* file_count, Arena *t
 												String8 current_directory, Color found_pywal_colors)
 {
 	SetTraceLogLevel(LOG_NONE);
-	//SetConfigFlags(FLAG_VSYNC_HINT);
+	SetConfigFlags(FLAG_VSYNC_HINT);
 	InitWindow(1200, 720, "File Open Dialog");
 	
 	Camera2D camera = { 0 };
@@ -762,7 +763,7 @@ main(int argc, char* argv[])
 		
 		// no stdout from raylib
 		SetTraceLogLevel(LOG_NONE);
-		//SetConfigFlags(FLAG_VSYNC_HINT|FLAG_MSAA_4X_HINT);
+		SetConfigFlags(FLAG_VSYNC_HINT|FLAG_MSAA_4X_HINT);
 		
 		// --------------------------DRAW CYCLE------------------------------
 		InitWindow(1200, 720, "Music Player");

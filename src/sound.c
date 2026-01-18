@@ -1,15 +1,18 @@
 typedef struct{
-	U32 isPaused;
-	U32 isPlaying;
-	snd_pcm_t *pcm_handle;
-	U8 *audio_data;
-	U32 should_stop;
-	U32 totalFrames;
-	volatile U32 framesWritten;
-	U32 remainingFrames;
-	WaveHeader *header;
-	U32 chunk_size;
-	pthread_mutex_t mutex;
+	U32               isPaused;
+	U32               isPlaying;
+	snd_pcm_t         *pcm_handle;
+	U8                *audio_data;
+	U32               should_stop;
+	U32               totalFrames;
+	volatile U32      framesWritten;
+	U32               remainingFrames;
+	WaveHeader        *header;
+	U32               chunk_size;
+	pthread_mutex_t   mutex;
+	snd_pcm_uframes_t hw_ptr_at_write;
+	U64               time_ns_at_write;
+	U32               sample_rate;
 }AudioContext;
 
 
